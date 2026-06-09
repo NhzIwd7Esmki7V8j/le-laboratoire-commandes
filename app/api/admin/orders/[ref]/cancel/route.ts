@@ -1,6 +1,6 @@
-// POST /api/admin/orders/:ref/cancel — annule le bordereau Boxtal.
+// POST /api/admin/orders/:ref/cancel — annule = SUPPRIME la commande (Boxtal + Telegram + base).
 import { getOrder } from "@/lib/orders"
-import { cancelLabelForOrder } from "@/lib/order-actions"
+import { cancelAndDelete } from "@/lib/order-actions"
 import { requireAdmin } from "@/lib/telegram-auth"
 
 export async function POST(req: Request, { params }: { params: Promise<{ ref: string }> }) {
@@ -9,12 +9,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ ref: st
 
   const { ref } = await params
   const order = await getOrder(ref)
-  if (!order) return new Response("Commande introuvable", { status: 404 })
+  if (!order) return Response.json({ ok: true }) // déjà supprimée
 
   try {
-    const updated = await cancelLabelForOrder(order)
-    return Response.json({ order: updated })
+    await cancelAndDelete(order)
+    return Response.json({ ok: true })
   } catch (err) {
-    return new Response(`Échec de l'annulation : ${String(err).slice(0, 200)}`, { status: 502 })
+    return new Response(`Échec de la suppression : ${String(err).slice(0, 200)}`, { status: 502 })
   }
 }

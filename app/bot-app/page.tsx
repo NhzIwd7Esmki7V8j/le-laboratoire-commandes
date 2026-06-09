@@ -57,7 +57,6 @@ const TABS: { key: string; label: string; status?: OrderStatus }[] = [
   { key: "accepted", label: "💳 À payer", status: "accepted" },
   { key: "paid", label: "📦 À expédier", status: "paid" },
   { key: "label_generated", label: "🚀 Expédiées", status: "label_generated" },
-  { key: "cancelled", label: "❌ Annulées", status: "cancelled" },
 ]
 
 const FLAG = { FR: "🇫🇷", BE: "🇧🇪" } as const
@@ -207,20 +206,22 @@ export default function BotAppPage() {
     [apiFetch, load],
   )
 
-  const doCancel = useCallback(
+  // Annuler = SUPPRIMER : la commande disparaît du dashboard ET du canal Telegram.
+  const doRemove = useCallback(
     async (ref: string) => {
       setBusy(true)
       try {
-        const { order } = await apiFetch(`/api/admin/orders/${ref}/cancel`, { method: "POST" })
-        applyUpdated(order)
-        toast.success("Bordereau annulé")
+        await apiFetch(`/api/admin/orders/${ref}`, { method: "DELETE" })
+        setOrders((prev) => prev.filter((o) => o.ref !== ref))
+        setSelected(null)
+        toast.success("Commande supprimée 🗑️")
       } catch (e) {
-        toast.error("Échec de l'annulation", { description: String(e).slice(0, 140) })
+        toast.error("Échec de la suppression", { description: String(e).slice(0, 140) })
       } finally {
         setBusy(false)
       }
     },
-    [apiFetch, load],
+    [apiFetch],
   )
 
   // Changement de statut manuel (Accepter / Refuser / Annuler) — sans Boxtal.
@@ -364,7 +365,7 @@ export default function BotAppPage() {
           busy={busy}
           onBack={() => setSelected(null)}
           onGenerate={() => doGenerate(current.ref)}
-          onCancel={() => doCancel(current.ref)}
+          onRemove={() => doRemove(current.ref)}
           onSetStatus={(status, label) => doSetStatus(current.ref, status, label)}
           onDownload={() => downloadPdf(current.ref)}
           onCopy={copy}
@@ -376,7 +377,7 @@ export default function BotAppPage() {
 
 // ── Vue détail d'une commande ───────────────────────────────────────────────
 function DetailView({
-  order, hint, cardBg, busy, onBack, onGenerate, onCancel, onSetStatus, onDownload, onCopy,
+  order, hint, cardBg, busy, onBack, onGenerate, onRemove, onSetStatus, onDownload, onCopy,
 }: {
   order: Order
   hint: string
@@ -384,7 +385,7 @@ function DetailView({
   busy: boolean
   onBack: () => void
   onGenerate: () => void
-  onCancel: () => void
+  onRemove: () => void
   onSetStatus: (status: OrderStatus, label: string) => void
   onDownload: () => void
   onCopy: (t: string) => void
@@ -462,7 +463,7 @@ function DetailView({
                 ✅ Accepter la commande
               </button>
               <button
-                onClick={() => onSetStatus("cancelled", "Commande refusée")}
+                onClick={onRemove}
                 disabled={busy}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-2.5 font-medium text-rose-600 disabled:opacity-60"
               >
@@ -481,7 +482,7 @@ function DetailView({
                 💳 Payé !
               </button>
               <button
-                onClick={() => onSetStatus("cancelled", "Commande annulée")}
+                onClick={onRemove}
                 disabled={busy}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-2.5 font-medium text-rose-600 disabled:opacity-60"
               >
@@ -500,7 +501,7 @@ function DetailView({
                 ⚗️ Générer le bordereau
               </button>
               <button
-                onClick={() => onSetStatus("cancelled", "Commande annulée")}
+                onClick={onRemove}
                 disabled={busy}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-2.5 font-medium text-rose-600 disabled:opacity-60"
               >
@@ -518,13 +519,10 @@ function DetailView({
               <button onClick={onDownload} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 font-semibold text-white">
                 <FileText className="h-4 w-4" /> 📄 Télécharger le PDF
               </button>
-              <button onClick={onCancel} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-2.5 font-medium text-rose-600 disabled:opacity-60">
+              <button onClick={onRemove} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-2.5 font-medium text-rose-600 disabled:opacity-60">
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Annuler le bordereau
               </button>
             </>
-          )}
-          {order.status === "cancelled" && (
-            <p className="py-2 text-center text-sm" style={{ color: hint }}>Commande annulée.</p>
           )}
         </div>
       </div>

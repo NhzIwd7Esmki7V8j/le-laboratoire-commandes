@@ -78,6 +78,12 @@ export async function updateOrder(
   return next
 }
 
+// Supprime définitivement une commande (objet + entrée d'index).
+export async function deleteOrder(ref: string): Promise<void> {
+  await redis.del(orderKey(ref))
+  await redis.zrem(INDEX_KEY, ref)
+}
+
 // Liste les commandes (plus récentes en premier), filtrable par statut.
 export async function listOrders(status?: OrderStatus): Promise<Order[]> {
   const refs = await redis.zrange<string[]>(INDEX_KEY, 0, -1, { rev: true })

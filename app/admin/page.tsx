@@ -21,6 +21,11 @@ import {
   Beaker,
   ChevronRight,
   ChevronDown,
+  Settings,
+  Plus,
+  Trash2,
+  Star,
+  ArrowLeft,
 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -44,6 +49,20 @@ interface Order {
   labelUrl?: string
 }
 
+interface Sender {
+  id: string
+  firstname: string
+  lastname: string
+  company?: string
+  street: string
+  zipcode: string
+  city: string
+  country: string
+  phone: string
+  email: string
+  isDefault?: boolean
+}
+
 const STATUS: Record<OrderStatus, { label: string; emoji: string; cls: string }> = {
   pending: { label: "En attente", emoji: "⏳", cls: "bg-amber-100 text-amber-700 border-amber-200" },
   accepted: { label: "À payer", emoji: "🟡", cls: "bg-violet-100 text-violet-700 border-violet-200" },
@@ -59,7 +78,6 @@ const TABS: { key: string; label: string; status?: OrderStatus }[] = [
   { key: "accepted", label: "À payer", status: "accepted" },
   { key: "paid", label: "À expédier", status: "paid" },
   { key: "label_generated", label: "Expédiées", status: "label_generated" },
-  { key: "cancelled", label: "Annulées", status: "cancelled" },
 ]
 
 const FLAG = { FR: "🇫🇷", BE: "🇧🇪" } as const
@@ -86,6 +104,9 @@ export default function AdminPage() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [senders, setSenders] = useState<Sender[]>([])
+  const [view, setView] = useState<"orders" | "senders">("orders")
   const busyRef = useRef(false)
   useEffect(() => { busyRef.current = busy }, [busy])
 
@@ -106,9 +127,19 @@ export default function AdminPage() {
       const { orders } = await apiFetch("/api/admin/orders")
       setOrders(orders ?? [])
       setAuthed(true)
+      try {
+        const { senders } = await apiFetch("/api/admin/senders")
+        setSenders(senders ?? [])
+      } catch {
+        /* non bloquant */
+      }
     } catch (e) {
       if (String(e).includes("__unauth__")) setAuthed(false)
-      else toast.error("Chargement impossible", { description: String(e).slice(0, 120) })
+      else {
+        toast.error("Chargement impossible", { description: String(e).slice(0, 120) })
+        // Évite un chargement infini si le 1er appel échoue → on montre l'écran de connexion.
+        setAuthed((a) => (a === null ? false : a))
+      }
     } finally {
       setLoading(false)
     }
@@ -166,25 +197,54 @@ export default function AdminPage() {
     setOrders((prev) => prev.map((o) => (o.ref === u.ref ? u : o)))
   }
 
-  const action = async (
-    path: string,
-    okMsg: string,
-    failMsg: string,
-  ) => {
+  // Annuler = SUPPRIMER la commande (Boxtal + Telegram + base) → disparaît de la liste.
+  const remove = async (ref: string) => {
     setBusy(true)
+    setBusyKey("remove")
     try {
-      const { order } = await apiFetch(path, { method: "POST" })
-      applyUpdated(order)
-      toast.success(okMsg)
+      await apiFetch(`/api/admin/orders/${ref}`, { method: "DELETE" })
+      setOrders((prev) => prev.filter((o) => o.ref !== ref))
+      setSelected(null)
+      toast.success("Commande supprimée 🗑️")
     } catch (e) {
-      toast.error(failMsg, { description: String(e).slice(0, 140) })
+      toast.error("Échec de la suppression", { description: String(e).slice(0, 140) })
     } finally {
       setBusy(false)
+      setBusyKey(null)
     }
   }
 
-  const setStatus = async (ref: string, status: OrderStatus, label: string) => {
+  // Génère le bordereau avec l'expéditeur choisi.
+  const generate = async (ref: string, senderId: string) => {
     setBusy(true)
+    setBusyKey("generate")
+    try {
+      const { order } = await apiFetch(`/api/admin/orders/${ref}/generate`, {
+        method: "POST",
+        body: JSON.stringify({ senderId }),
+      })
+      applyUpdated(order)
+      toast.success("Bordereau généré ✅", { description: "PDF envoyé dans le canal Telegram." })
+    } catch (e) {
+      toast.error("Échec de la génération", { description: String(e).slice(0, 140) })
+    } finally {
+      setBusy(false)
+      setBusyKey(null)
+    }
+  }
+
+  // Enregistre la liste d'expéditeurs (remplace la liste complète côté serveur).
+  const persistSenders = async (list: Sender[]) => {
+    const { senders } = await apiFetch("/api/admin/senders", {
+      method: "PUT",
+      body: JSON.stringify({ senders: list }),
+    })
+    setSenders(senders ?? [])
+  }
+
+  const setStatus = async (ref: string, status: OrderStatus, label: string, key = "status") => {
+    setBusy(true)
+    setBusyKey(key)
     try {
       const { order } = await apiFetch(`/api/admin/orders/${ref}`, {
         method: "PATCH",
@@ -196,6 +256,7 @@ export default function AdminPage() {
       toast.error("Échec", { description: String(e).slice(0, 140) })
     } finally {
       setBusy(false)
+      setBusyKey(null)
     }
   }
 
@@ -226,8 +287,10 @@ export default function AdminPage() {
 
   const current = useMemo(() => orders.find((o) => o.ref === selected) ?? null, [orders, selected])
 
-  // ── Écran de connexion ──────────────────────────────────────────────────────
-  if (authed === false) {
+  // ── Écran de connexion (par défaut tant qu'on n'est pas authentifié) ────────
+  // On l'affiche immédiatement pour `null` (vérification en cours) ET `false`,
+  // pour ne JAMAIS rester bloqué sur un écran de chargement (cold start lent).
+  if (authed !== true) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-violet-100 p-4">
         <form
@@ -266,15 +329,6 @@ export default function AdminPage() {
     )
   }
 
-  // ── Écran de chargement initial ─────────────────────────────────────────────
-  if (authed === null) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-500">
-        <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Chargement…
-      </div>
-    )
-  }
-
   // ── Back-office ─────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-screen flex-col bg-slate-100 text-slate-800">
@@ -287,6 +341,14 @@ export default function AdminPage() {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <button
+            onClick={() => setView((v) => (v === "orders" ? "senders" : "orders"))}
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm hover:bg-white/15 sm:px-3"
+            title="Expéditeurs"
+          >
+            <Settings className="h-4 w-4" />
+            <span className="hidden sm:inline">Expéditeurs</span>
+          </button>
           <button onClick={load} className="rounded-lg p-2 hover:bg-white/15" title="Rafraîchir">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
@@ -299,6 +361,18 @@ export default function AdminPage() {
           </button>
         </div>
       </header>
+
+      {view === "senders" && (
+        <SendersEditor
+          senders={senders}
+          busy={busy}
+          onSave={persistSenders}
+          onBack={() => setView("orders")}
+        />
+      )}
+      {view === "orders" && (
+      <>
+      {/* (corps commandes ci-dessous) */}
 
       {/* Filtre — menu déroulant (mobile) */}
       <div className="relative z-30 border-b border-slate-200 bg-white px-3 py-2 md:hidden">
@@ -461,39 +535,46 @@ export default function AdminPage() {
         {current && (
           <DetailPanel
             order={current}
+            senders={senders}
             busy={busy}
+            busyKey={busyKey}
             onClose={() => setSelected(null)}
-            onAccept={() => setStatus(current.ref, "accepted", "Commande acceptée ✅")}
-            onRefuse={() => setStatus(current.ref, "cancelled", "Commande refusée")}
-            onPaid={() => setStatus(current.ref, "paid", "Paiement validé 💳")}
-            onCancelOrder={() => setStatus(current.ref, "cancelled", "Commande annulée")}
-            onGenerate={() => action(`/api/admin/orders/${current.ref}/generate`, "Bordereau généré ✅", "Échec de la génération")}
-            onCancelLabel={() => action(`/api/admin/orders/${current.ref}/cancel`, "Bordereau annulé", "Échec de l'annulation")}
+            onAccept={() => setStatus(current.ref, "accepted", "Commande acceptée ✅", "accept")}
+            onPaid={() => setStatus(current.ref, "paid", "Paiement validé 💳", "paid")}
+            onGenerate={(senderId) => generate(current.ref, senderId)}
+            onRemove={() => remove(current.ref)}
             onDownload={() => downloadPdf(current.ref)}
             onCopy={copy}
           />
         )}
       </div>
+      </>
+      )}
     </div>
   )
 }
 
 // ── Panneau détail (droite) ──────────────────────────────────────────────────
 function DetailPanel({
-  order, busy, onClose, onAccept, onRefuse, onPaid, onCancelOrder, onGenerate, onCancelLabel, onDownload, onCopy,
+  order, senders, busy, busyKey, onClose, onAccept, onPaid, onGenerate, onRemove, onDownload, onCopy,
 }: {
   order: Order
+  senders: Sender[]
   busy: boolean
+  busyKey: string | null
   onClose: () => void
   onAccept: () => void
-  onRefuse: () => void
   onPaid: () => void
-  onCancelOrder: () => void
-  onGenerate: () => void
-  onCancelLabel: () => void
+  onGenerate: (senderId: string) => void
+  onRemove: () => void
   onDownload: () => void
   onCopy: (t: string) => void
 }) {
+  const defaultSenderId = senders.find((s) => s.isDefault)?.id ?? senders[0]?.id ?? ""
+  const [genSender, setGenSender] = useState(defaultSenderId)
+  useEffect(() => {
+    if (!senders.find((s) => s.id === genSender)) setGenSender(defaultSenderId)
+  }, [senders, genSender, defaultSenderId])
   const STEPS: OrderStatus[] = ["pending", "accepted", "paid", "generating", "label_generated"]
   const idx = STEPS.indexOf(order.status)
   const timeline = [
@@ -561,22 +642,44 @@ function DetailPanel({
         <div className="mt-5 space-y-2">
           {order.status === "pending" && (
             <>
-              <ActionBtn onClick={onAccept} busy={busy} primary icon={<CheckCircle2 className="h-4 w-4" />}>Accepter la commande</ActionBtn>
-              <ActionBtn onClick={onRefuse} busy={busy} danger icon={<XCircle className="h-4 w-4" />}>Refuser</ActionBtn>
+              <ActionBtn onClick={onAccept} disabled={busy} loading={busyKey === "accept"} primary icon={<CheckCircle2 className="h-4 w-4" />}>Accepter la commande</ActionBtn>
+              <ActionBtn onClick={onRemove} disabled={busy} loading={busyKey === "remove"} danger icon={<Trash2 className="h-4 w-4" />}>Refuser</ActionBtn>
             </>
           )}
           {order.status === "accepted" && (
             <>
-              <ActionBtn onClick={onPaid} busy={busy} primary icon={<CreditCard className="h-4 w-4" />}>Payé !</ActionBtn>
-              <ActionBtn onClick={onCancelOrder} busy={busy} danger icon={<XCircle className="h-4 w-4" />}>Annuler la commande</ActionBtn>
+              <ActionBtn onClick={onPaid} disabled={busy} loading={busyKey === "paid"} primary icon={<CreditCard className="h-4 w-4" />}>Payé !</ActionBtn>
+              <ActionBtn onClick={onRemove} disabled={busy} loading={busyKey === "remove"} danger icon={<Trash2 className="h-4 w-4" />}>Annuler la commande</ActionBtn>
             </>
           )}
-          {order.status === "paid" && (
-            <>
-              <ActionBtn onClick={onGenerate} busy={busy} primary icon={<Beaker className="h-4 w-4" />}>Générer le bordereau</ActionBtn>
-              <ActionBtn onClick={onCancelOrder} busy={busy} danger icon={<XCircle className="h-4 w-4" />}>Annuler la commande</ActionBtn>
-            </>
-          )}
+          {order.status === "paid" &&
+            (senders.length === 0 ? (
+              <p className="rounded-lg bg-amber-50 p-3 text-center text-sm text-amber-700">
+                Ajoute d'abord une adresse expéditeur (bouton « Expéditeurs » en haut).
+              </p>
+            ) : (
+              <>
+                <label className="block text-xs font-medium text-slate-500">Expédier depuis</label>
+                <select
+                  value={genSender}
+                  onChange={(e) => setGenSender(e.target.value)}
+                  className="mb-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  {senders.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.city} — {s.firstname} {s.lastname}
+                      {s.isDefault ? " (défaut)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <ActionBtn onClick={() => onGenerate(genSender)} disabled={busy} loading={busyKey === "generate"} primary icon={<Beaker className="h-4 w-4" />}>
+                  Générer le bordereau
+                </ActionBtn>
+                <ActionBtn onClick={onRemove} disabled={busy} loading={busyKey === "remove"} danger icon={<Trash2 className="h-4 w-4" />}>
+                  Annuler la commande
+                </ActionBtn>
+              </>
+            ))}
           {order.status === "generating" && (
             <div className="flex items-center justify-center gap-2 rounded-lg bg-sky-50 py-3 text-sm font-medium text-sky-700">
               <Loader2 className="h-4 w-4 animate-spin" /> Génération en cours…
@@ -585,11 +688,8 @@ function DetailPanel({
           {order.status === "label_generated" && (
             <>
               <ActionBtn onClick={onDownload} success icon={<FileText className="h-4 w-4" />}>Télécharger le PDF</ActionBtn>
-              <ActionBtn onClick={onCancelLabel} busy={busy} danger icon={<XCircle className="h-4 w-4" />}>Annuler le bordereau</ActionBtn>
+              <ActionBtn onClick={onRemove} disabled={busy} loading={busyKey === "remove"} danger icon={<Trash2 className="h-4 w-4" />}>Annuler le bordereau</ActionBtn>
             </>
-          )}
-          {order.status === "cancelled" && (
-            <p className="py-2 text-center text-sm text-slate-400">Commande annulée.</p>
           )}
         </div>
       </div>
@@ -607,10 +707,11 @@ function Row({ icon, children }: { icon: React.ReactNode; children: React.ReactN
 }
 
 function ActionBtn({
-  onClick, busy, primary, danger, success, icon, children,
+  onClick, disabled, loading, primary, danger, success, icon, children,
 }: {
   onClick: () => void
-  busy?: boolean
+  disabled?: boolean
+  loading?: boolean
   primary?: boolean
   danger?: boolean
   success?: boolean
@@ -627,11 +728,127 @@ function ActionBtn({
   return (
     <button
       onClick={onClick}
-      disabled={busy}
+      disabled={disabled}
       className={`flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition disabled:opacity-60 ${cls}`}
     >
-      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
       {children}
     </button>
+  )
+}
+
+// ── Éditeur des adresses expéditeur ──────────────────────────────────────────
+function SendersEditor({
+  senders, busy, onSave, onBack,
+}: {
+  senders: Sender[]
+  busy: boolean
+  onSave: (list: Sender[]) => Promise<void>
+  onBack: () => void
+}) {
+  const [list, setList] = useState<Sender[]>(senders)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { setList(senders) }, [senders])
+
+  const blank = (): Sender => ({
+    id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `s_${Date.now()}`,
+    firstname: "", lastname: "", company: "Le Laboratoire", street: "",
+    zipcode: "", city: "", country: "FR", phone: "", email: "",
+    isDefault: list.length === 0,
+  })
+  const update = (id: string, patch: Partial<Sender>) =>
+    setList((l) => l.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+  const remove = (id: string) => setList((l) => l.filter((s) => s.id !== id))
+  const setDefault = (id: string) => setList((l) => l.map((s) => ({ ...s, isDefault: s.id === id })))
+  const add = () => setList((l) => [...l, blank()])
+
+  const save = async () => {
+    if (!list.every((s) => s.firstname && s.lastname && s.street && s.zipcode && s.city)) {
+      toast.error("Complète chaque adresse (prénom, nom, rue, CP, ville).")
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(list)
+      toast.success("Expéditeurs enregistrés ✅")
+    } catch (e) {
+      toast.error("Échec de l'enregistrement", { description: String(e).slice(0, 140) })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-4">
+      <div className="mx-auto max-w-2xl">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-bold">Mes adresses expéditeur</h2>
+          <button onClick={onBack} className="flex items-center gap-1 text-sm text-violet-600">
+            <ArrowLeft className="h-4 w-4" /> Commandes
+          </button>
+        </div>
+        <p className="mb-4 text-sm text-slate-500">
+          Enregistre tes adresses fixes ; tu choisiras laquelle au moment de générer un bordereau.
+          L'adresse <Star className="inline h-3 w-3 fill-amber-400 text-amber-400" /> sert par défaut (Telegram).
+        </p>
+
+        <div className="space-y-3">
+          {list.map((s) => (
+            <div key={s.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center justify-between">
+                <button onClick={() => setDefault(s.id)} className="flex items-center gap-1 text-xs font-medium text-slate-600">
+                  <Star className={`h-4 w-4 ${s.isDefault ? "fill-amber-400 text-amber-400" : "text-slate-300"}`} />
+                  {s.isDefault ? "Par défaut" : "Définir par défaut"}
+                </button>
+                <button onClick={() => remove(s.id)} className="text-rose-400 hover:text-rose-600">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Prénom" value={s.firstname} onChange={(v) => update(s.id, { firstname: v })} />
+                <Field label="Nom" value={s.lastname} onChange={(v) => update(s.id, { lastname: v })} />
+                <Field label="Société" value={s.company ?? ""} onChange={(v) => update(s.id, { company: v })} />
+                <Field label="Téléphone" value={s.phone} onChange={(v) => update(s.id, { phone: v })} />
+                <div className="col-span-2">
+                  <Field label="Rue (n° + voie)" value={s.street} onChange={(v) => update(s.id, { street: v })} />
+                </div>
+                <Field label="Code postal" value={s.zipcode} onChange={(v) => update(s.id, { zipcode: v })} />
+                <Field label="Ville" value={s.city} onChange={(v) => update(s.id, { city: v })} />
+                <div className="col-span-2">
+                  <Field label="Email" value={s.email} onChange={(v) => update(s.id, { email: v })} />
+                </div>
+              </div>
+            </div>
+          ))}
+          {list.length === 0 && (
+            <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
+              Aucune adresse. Ajoute ta première adresse expéditeur.
+            </p>
+          )}
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          <button onClick={add} className="flex items-center gap-1.5 rounded-lg border border-violet-300 px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-50">
+            <Plus className="h-4 w-4" /> Ajouter une adresse
+          </button>
+          <button onClick={save} disabled={saving || busy} className="ml-auto flex items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="mb-0.5 block text-[11px] font-medium text-slate-500">{label}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-200"
+      />
+    </label>
   )
 }

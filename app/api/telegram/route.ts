@@ -4,7 +4,7 @@
 // est re-rendu EN ENTIER sur place (un seul canal, pas de copie vers un 2e canal).
 import { getOrder, updateOrder } from "@/lib/orders"
 import { tg, refreshOrderMessage } from "@/lib/telegram"
-import { generateLabelForOrder, cancelLabelForOrder, type Answer } from "@/lib/order-actions"
+import { generateLabelForOrder, cancelAndDelete, type Answer } from "@/lib/order-actions"
 
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET
 
@@ -48,9 +48,7 @@ export async function POST(req: Request) {
         break
       }
       case "ref": {
-        const updated = await updateOrder(ref, { status: "cancelled" })
-        if (updated) await refreshOrderMessage(updated)
-        await answer("Commande annulée ❌")
+        await cancelAndDelete(order, answer).catch(() => {})
         break
       }
       case "pay": {
@@ -60,10 +58,10 @@ export async function POST(req: Request) {
         break
       }
       case "gen":
-        await generateLabelForOrder(order, answer).catch(() => {})
+        await generateLabelForOrder(order, { answer }).catch(() => {})
         break
       case "cancel":
-        await cancelLabelForOrder(order, answer).catch(() => {})
+        await cancelAndDelete(order, answer).catch(() => {})
         break
       default:
         await answer()

@@ -1,9 +1,10 @@
 // Actions « métier » sur une commande, partagées par le webhook Telegram ET l'API admin
 // (Mini App). Centralise la génération / l'annulation du bordereau pour éviter toute
 // divergence de logique entre les deux points d'entrée.
-import { updateOrder, type Order } from "./orders"
+import { updateOrder, deleteOrder, type Order } from "./orders"
 import { tg, refreshOrderMessage, escapeHtml } from "./telegram"
 import { generateLabel, cancelShipment } from "./boxtal"
+import { getSender, getDefaultSender } from "./senders"
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN
 
@@ -28,7 +29,11 @@ async function sendLabelPdf(order: Order, pdf: Uint8Array): Promise<void> {
 }
 
 // Génère le bordereau Boxtal — idempotent + lock optimiste (chaque bordereau est facturé).
-export async function generateLabelForOrder(order: Order, answer?: Answer): Promise<Order | null> {
+export async function generateLabelForOrder(
+  order: Order,
+  opts: { senderId?: string; answer?: Answer } = {},
+): Promise<Order | null> {
+  const answer = opts.answer
   if (order.status === "label_generated") {
     await answer?.(`⚠️ Bordereau déjà généré (suivi : ${order.trackingNumber ?? "—"})`, true)
     return order
@@ -38,13 +43,20 @@ export async function generateLabelForOrder(order: Order, answer?: Answer): Prom
     return order
   }
 
+  // Résout l'expéditeur (choisi ou par défaut) AVANT de verrouiller.
+  const sender = opts.senderId ? await getSender(opts.senderId) : await getDefaultSender()
+  if (!sender) {
+    await answer?.("Aucune adresse expéditeur. Ajoutez-en une dans le back-office (Réglages).", true)
+    return order
+  }
+
   // Lock : passe en "generating" (retire les boutons) avant l'appel Boxtal.
   const working = await updateOrder(order.ref, { status: "generating" })
   if (working) await refreshOrderMessage(working)
   await answer?.("Génération du bordereau en cours…")
 
   try {
-    const { shipmentId, trackingNumber, labelUrl, pdf } = await generateLabel(order)
+    const { shipmentId, trackingNumber, labelUrl, pdf } = await generateLabel(order, sender)
     const done = await updateOrder(order.ref, {
       status: "label_generated",
       shipmentId,
@@ -73,21 +85,28 @@ export async function generateLabelForOrder(order: Order, answer?: Answer): Prom
   }
 }
 
-// Annule un bordereau déjà généré.
-export async function cancelLabelForOrder(order: Order, answer?: Answer): Promise<Order | null> {
-  if (!order.shipmentId) {
-    await answer?.("Aucun bordereau à annuler.", true)
-    return order
-  }
+// Annuler = SUPPRIMER : annule le bordereau Boxtal (si généré), efface le message
+// Telegram, et supprime la commande de la base. Elle disparaît partout.
+export async function cancelAndDelete(order: Order, answer?: Answer): Promise<void> {
   try {
-    await cancelShipment(order.shipmentId)
-    const updated = await updateOrder(order.ref, { status: "cancelled" })
-    if (updated) await refreshOrderMessage(updated)
-    await answer?.("Bordereau annulé ✅", true)
-    return updated
+    if (order.status === "label_generated" && order.shipmentId) {
+      try {
+        await cancelShipment(order.shipmentId)
+      } catch (e) {
+        console.log("[order-actions] annulation Boxtal échouée (on supprime quand même):", e)
+      }
+    }
+    if (order.telegramChatId && order.telegramMessageId) {
+      await tg("deleteMessage", {
+        chat_id: order.telegramChatId,
+        message_id: order.telegramMessageId,
+      })
+    }
+    await deleteOrder(order.ref)
+    await answer?.("Commande supprimée 🗑️", true)
   } catch (err) {
-    console.log("[order-actions] annulation échouée:", err)
-    await answer?.("Échec de l'annulation. Réessayez.", true)
+    console.log("[order-actions] suppression échouée:", err)
+    await answer?.("Échec de la suppression. Réessayez.", true)
     throw err
   }
 }

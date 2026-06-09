@@ -12,8 +12,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ ref: st
   const order = await getOrder(ref)
   if (!order) return new Response("Commande introuvable", { status: 404 })
 
+  const body = await req.json().catch(() => ({}))
+  const senderId = typeof body?.senderId === "string" ? body.senderId : undefined
+
   try {
-    const updated = await generateLabelForOrder(order)
+    const updated = await generateLabelForOrder(order, { senderId })
     return Response.json({ order: updated })
   } catch (err) {
     return new Response(`Échec de la génération : ${String(err).slice(0, 200)}`, { status: 502 })
