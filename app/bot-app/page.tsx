@@ -141,6 +141,15 @@ export default function BotAppPage() {
     }
   }, [tg, load])
 
+  // Auto-refresh léger : reflète les changements (boutons Telegram, autre session)
+  // sans rechargement manuel. En pause quand l'app n'est pas visible ou pendant une action.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!busy && typeof document !== "undefined" && !document.hidden) load()
+    }, 12000)
+    return () => clearInterval(id)
+  }, [busy, load])
+
   const counts = useMemo(() => {
     const toShip = orders.filter((o) => o.status === "accepted" || o.status === "generating").length
     const today = new Date().toDateString()
