@@ -134,10 +134,8 @@ export function orderButtons(order: Order): { inline_keyboard: InlineButton[][] 
     case "generating":
       break // aucun bouton pendant la génération (évite le double-clic)
     case "label_generated":
-      rows.push([
-        ...(order.labelUrl ? [{ text: "📄 Voir bordereau", url: order.labelUrl }] : []),
-        { text: "❌ Annuler bordereau", callback_data: `cancel:${order.ref}` },
-      ])
+      // Expédiée : plus d'annulation possible. (Le PDF est aussi déjà dans le canal.)
+      if (order.labelUrl) rows.push([{ text: "📄 Voir bordereau", url: order.labelUrl }])
       break
     case "cancelled":
       break

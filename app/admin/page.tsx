@@ -134,10 +134,10 @@ export default function AdminPage() {
         /* non bloquant */
       }
     } catch (e) {
-      if (String(e).includes("__unauth__")) setAuthed(false)
+      // Si on est déjà connecté (authed=true), on ne ré-éjecte PAS sur un appel raté.
+      if (String(e).includes("__unauth__")) setAuthed((a) => (a === true ? a : false))
       else {
         toast.error("Chargement impossible", { description: String(e).slice(0, 120) })
-        // Évite un chargement infini si le 1er appel échoue → on montre l'écran de connexion.
         setAuthed((a) => (a === null ? false : a))
       }
     } finally {
@@ -179,8 +179,10 @@ export default function AdminPage() {
         setLoginError("Mot de passe incorrect.")
         return
       }
+      // Connexion OK → on entre immédiatement, puis on charge les données en arrière-plan.
       setPassword("")
-      await load()
+      setAuthed(true)
+      void load()
     } catch {
       setLoginError("Erreur de connexion. Réessayez.")
     } finally {
@@ -694,10 +696,7 @@ function DetailPanel({
             </div>
           )}
           {order.status === "label_generated" && (
-            <>
-              <ActionBtn onClick={onDownload} success icon={<FileText className="h-4 w-4" />}>Télécharger le PDF</ActionBtn>
-              <ActionBtn onClick={onRemove} disabled={busy} loading={busyKey === "remove"} danger icon={<Trash2 className="h-4 w-4" />}>Annuler le bordereau</ActionBtn>
-            </>
+            <ActionBtn onClick={onDownload} success icon={<FileText className="h-4 w-4" />}>Télécharger le PDF</ActionBtn>
           )}
         </div>
       </div>

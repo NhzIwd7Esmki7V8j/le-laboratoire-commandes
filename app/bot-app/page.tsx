@@ -512,9 +512,6 @@ function DetailView({
               <button onClick={onDownload} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 font-semibold text-white">
                 <FileText className="h-4 w-4" /> 📄 Télécharger le PDF
               </button>
-              <button onClick={onRemove} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-2.5 font-medium text-rose-600 disabled:opacity-60">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Annuler le bordereau
-              </button>
             </>
           )}
         </div>
