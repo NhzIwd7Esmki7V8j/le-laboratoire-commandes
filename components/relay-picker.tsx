@@ -1,19 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { MapPin, Loader2 } from "lucide-react"
-
-// Code enseigne Mondial Relay. "BDTEST" = code de démo gratuit.
-// À remplacer par le vrai code via NEXT_PUBLIC_MONDIAL_RELAY_BRAND une fois le compte créé.
-const BRAND = process.env.NEXT_PUBLIC_MONDIAL_RELAY_BRAND || "BDTEST"
+import { useState } from "react"
+import { MapPin, Loader2, Search, Check, AlertCircle } from "lucide-react"
 
 export type SelectedRelay = {
   id: string
@@ -23,42 +11,10 @@ export type SelectedRelay = {
   ville: string
 }
 
-// --- Chargement des dépendances du widget (jQuery + Leaflet + plugin), une seule fois ---
-let assetsPromise: Promise<void> | null = null
+type Point = { code: string; name: string; address: string; zipcode: string; city: string }
 
-function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) return resolve()
-    const s = document.createElement("script")
-    s.src = src
-    s.async = false
-    s.onload = () => resolve()
-    s.onerror = () => reject(new Error(`Échec du chargement : ${src}`))
-    document.body.appendChild(s)
-  })
-}
-
-function loadCss(href: string) {
-  if (document.querySelector(`link[href="${href}"]`)) return
-  const l = document.createElement("link")
-  l.rel = "stylesheet"
-  l.href = href
-  document.head.appendChild(l)
-}
-
-function loadMondialRelayAssets(): Promise<void> {
-  if (assetsPromise) return assetsPromise
-  assetsPromise = (async () => {
-    loadCss("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css")
-    await loadScript("https://code.jquery.com/jquery-3.6.0.min.js")
-    await loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js")
-    await loadScript(
-      "https://widget.mondialrelay.com/parcelshop-picker/jquery.plugin.mondialrelay.parcelshoppicker.min.js",
-    )
-  })()
-  return assetsPromise
-}
-
+// Sélecteur de point relais Mondial Relay — basé sur l'API Boxtal (via /api/relays).
+// Le client saisit son code postal, on liste les points relais autour, il en choisit un.
 export function RelayPicker({
   defaultPostCode,
   country = "FR",
@@ -68,105 +24,110 @@ export function RelayPicker({
   country?: "FR" | "BE"
   onSelect: (relay: SelectedRelay) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [cp, setCp] = useState(defaultPostCode ?? "")
+  const [points, setPoints] = useState<Point[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [searched, setSearched] = useState(false)
+  const [selectedCode, setSelectedCode] = useState("")
 
-  // Refs pour ne pas réinitialiser le widget à chaque rendu
-  const onSelectRef = useRef(onSelect)
-  const postCodeRef = useRef(defaultPostCode)
-  const countryRef = useRef(country)
-  useEffect(() => {
-    onSelectRef.current = onSelect
-    postCodeRef.current = defaultPostCode
-    countryRef.current = country
-  }, [onSelect, defaultPostCode, country])
+  const maxLen = country === "BE" ? 4 : 5
 
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
+  const search = async () => {
+    const code = cp.trim()
+    const ok = country === "BE" ? /^\d{4}$/.test(code) : /^\d{5}$/.test(code)
+    if (!ok) {
+      setError(`Entre un code postal valide (${maxLen} chiffres).`)
+      return
+    }
     setLoading(true)
     setError("")
-
-    loadMondialRelayAssets()
-      .then(() => {
-        if (cancelled) return
-        const $ = (window as unknown as { $?: any }).$
-        if (!$ || !$.fn || !$.fn.MR_ParcelShopPicker) {
-          throw new Error("Widget indisponible")
-        }
-        // Léger délai : le conteneur de la modale (Radix) doit être visible
-        setTimeout(() => {
-          if (cancelled) return
-          $("#mr-widget").MR_ParcelShopPicker({
-            Target: "#mr-selected-id",
-            Brand: BRAND,
-            Country: countryRef.current || "FR",
-            PostCode: postCodeRef.current || "",
-            ColLivMod: "24R", // 24R = livraison en point relais
-            NbResults: "7",
-            ShowResultsOnMap: true,
-            Responsive: true, // adapte la mise en page aux petits écrans
-            OnParcelShopSelected: (data: Record<string, string>) => {
-              const relay: SelectedRelay = {
-                id: data?.ID ?? "",
-                nom: data?.Nom ?? "",
-                adresse: [data?.Adresse1, data?.Adresse2].filter(Boolean).join(" ").trim(),
-                cp: data?.CP ?? "",
-                ville: data?.Ville ?? "",
-              }
-              onSelectRef.current(relay)
-              setOpen(false)
-            },
-          })
-          setLoading(false)
-        }, 250)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setError(
-          "Impossible de charger la carte des points relais. Vous pouvez réessayer ou saisir le point relais manuellement.",
-        )
-        setLoading(false)
-      })
-
-    return () => {
-      cancelled = true
+    setSearched(true)
+    setPoints([])
+    try {
+      const res = await fetch(`/api/relays?cp=${encodeURIComponent(code)}&country=${country}`)
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      setPoints(Array.isArray(data.points) ? data.points : [])
+    } catch {
+      setError("Recherche indisponible pour le moment. Réessaie.")
+    } finally {
+      setLoading(false)
     }
-  }, [open])
+  }
+
+  const pick = (p: Point) => {
+    setSelectedCode(p.code)
+    onSelect({ id: p.code, nom: p.name, adresse: p.address, cp: p.zipcode, ville: p.city })
+  }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <input
+          value={cp}
+          onChange={(e) => setCp(e.target.value.replace(/[^0-9]/g, "").slice(0, maxLen))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              search()
+            }
+          }}
+          inputMode="numeric"
+          placeholder={`Code postal (${maxLen} chiffres)`}
+          className="flex-1 rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+        />
+        <button
           type="button"
-          variant="outline"
-          className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50"
+          onClick={search}
+          disabled={loading}
+          className="flex shrink-0 items-center gap-2 rounded-lg bg-violet-600 px-4 py-2.5 font-medium text-white transition hover:bg-violet-700 disabled:opacity-60"
         >
-          <MapPin className="h-4 w-4" />
-          Choisir mon point relais sur la carte
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="w-[95vw] max-w-2xl max-h-[88vh] overflow-y-auto p-4 sm:p-6">
-        <DialogHeader>
-          <DialogTitle>Choisissez votre point relais</DialogTitle>
-        </DialogHeader>
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+          Rechercher
+        </button>
+      </div>
 
-        {error ? (
-          <p className="text-sm text-red-600 py-4">{error}</p>
-        ) : (
-          <>
-            {loading && (
-              <div className="flex items-center justify-center gap-2 py-6 text-slate-500">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                Chargement de la carte...
-              </div>
-            )}
-            <div id="mr-widget" className="w-full max-w-full overflow-x-hidden min-h-[440px]" />
-            <input type="hidden" id="mr-selected-id" />
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+      {error && (
+        <p className="flex items-center gap-1 text-sm text-red-600">
+          <AlertCircle className="h-3.5 w-3.5" /> {error}
+        </p>
+      )}
+
+      {searched && !loading && !error && points.length === 0 && (
+        <p className="text-sm text-slate-500">
+          Aucun point relais trouvé pour ce code postal. Vérifie le code ou essaie une commune proche.
+        </p>
+      )}
+
+      {points.length > 0 && (
+        <div className="max-h-72 space-y-2 overflow-auto rounded-lg border border-slate-100 p-1">
+          {points.map((p) => {
+            const active = selectedCode === p.code
+            return (
+              <button
+                type="button"
+                key={p.code}
+                onClick={() => pick(p)}
+                className={`flex w-full items-start gap-2 rounded-lg border p-3 text-left transition ${
+                  active
+                    ? "border-violet-500 bg-violet-50"
+                    : "border-slate-200 hover:border-violet-300 hover:bg-slate-50"
+                }`}
+              >
+                <MapPin className={`mt-0.5 h-4 w-4 shrink-0 ${active ? "text-violet-600" : "text-slate-400"}`} />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-800">{p.name}</p>
+                  <p className="truncate text-xs text-slate-500">
+                    {p.address}, {p.zipcode} {p.city}
+                  </p>
+                </div>
+                {active && <Check className="h-4 w-4 shrink-0 text-violet-600" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }

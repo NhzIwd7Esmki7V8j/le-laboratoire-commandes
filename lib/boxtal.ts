@@ -88,6 +88,13 @@ export interface ShipmentResult {
   trackingNumber: string
   labelUrl: string
 }
+export interface RelayPoint {
+  code: string
+  name: string
+  address: string
+  zipcode: string
+  city: string
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function num(v: unknown): number {
@@ -296,6 +303,29 @@ async function resolveDepotRelay(zipcode: string, city: string): Promise<string>
   } catch {
     return depotRelay()
   }
+}
+
+// Liste publique des points relais Mondial Relay près d'un code postal (formulaire client).
+export async function listRelayPoints(
+  country: string,
+  zipcode: string,
+  city: string,
+): Promise<RelayPoint[]> {
+  const params = new URLSearchParams({ srv: "MONR", pays: country || "FR", cp: zipcode, ville: city || "" })
+  const res = await fetch(`${baseUrl()}/api/v1/listpoints.xml?${params}`, { headers: apiHeaders() })
+  if (!res.ok) throw new Error(`Boxtal listpoints ${res.status}`)
+  const monr = collectNodes(xml.parse(await res.text()), "carrier").find(
+    (c: any) => String(c?.operator) === "MONR",
+  )
+  return collectNodes(monr, "point")
+    .map((p: any): RelayPoint => ({
+      code: String(p?.code ?? ""),
+      name: String(p?.name ?? ""),
+      address: String(p?.address ?? ""),
+      zipcode: String(p?.zipcode ?? ""),
+      city: String(p?.city ?? ""),
+    }))
+    .filter((p) => p.code)
 }
 
 function recipientFromOrder(order: Order): BoxtalAddress {

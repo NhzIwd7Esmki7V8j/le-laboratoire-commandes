@@ -503,8 +503,8 @@ export function OrderSection() {
                       </p>
                     ) : (
                       <p className="text-xs text-slate-400">
-                        Cliquez sur « Choisir mon point relais sur la carte » et sélectionnez votre
-                        relais : tout se remplit automatiquement.
+                        Entrez votre code postal, cliquez sur « Rechercher », puis choisissez votre
+                        point relais dans la liste.
                       </p>
                     )}
                   </div>
