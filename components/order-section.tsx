@@ -181,7 +181,10 @@ export function OrderSection() {
     e.preventDefault()
     setErrorMsg("")
     if (!validateAll()) {
-      setStatus("idle")
+      setStatus("error")
+      setErrorMsg(
+        "Merci de compléter tous les champs en rouge (le détail de la commande et le prix sont obligatoires).",
+      )
       return
     }
     setStatus("loading")
