@@ -686,9 +686,6 @@ function DetailPanel({
                 <ActionBtn onClick={() => onGenerate(genSender)} disabled={busy} loading={busyKey === "generate"} primary icon={<Beaker className="h-4 w-4" />}>
                   Générer le bordereau
                 </ActionBtn>
-                <ActionBtn onClick={onRemove} disabled={busy} loading={busyKey === "remove"} danger icon={<Trash2 className="h-4 w-4" />}>
-                  Annuler la commande
-                </ActionBtn>
               </>
             ))}
           {order.status === "generating" && (

@@ -126,10 +126,10 @@ export function orderButtons(order: Order): { inline_keyboard: InlineButton[][] 
       rows.push([{ text: "❌ Annuler", callback_data: `ref:${order.ref}` }])
       break
     case "paid":
+      // Une fois payé, plus d'annulation possible (commande protégée).
       rows.push([
         { text: "⚗️ Générer le bordereau", callback_data: `gen:${order.ref}` },
       ])
-      rows.push([{ text: "❌ Annuler", callback_data: `ref:${order.ref}` }])
       break
     case "generating":
       break // aucun bouton pendant la génération (évite le double-clic)

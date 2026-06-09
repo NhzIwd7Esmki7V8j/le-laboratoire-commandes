@@ -500,13 +500,6 @@ function DetailView({
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Beaker className="h-4 w-4" />}
                 ⚗️ Générer le bordereau
               </button>
-              <button
-                onClick={onRemove}
-                disabled={busy}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-2.5 font-medium text-rose-600 disabled:opacity-60"
-              >
-                <XCircle className="h-4 w-4" /> Annuler la commande
-              </button>
             </>
           )}
           {order.status === "generating" && (
