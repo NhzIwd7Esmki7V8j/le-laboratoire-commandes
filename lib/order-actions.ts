@@ -58,7 +58,8 @@ export async function generateLabelForOrder(order: Order, answer?: Answer): Prom
     return done
   } catch (err) {
     console.log("[order-actions] génération bordereau échouée:", err)
-    const reverted = await updateOrder(order.ref, { status: "accepted" })
+    // Retour en "paid" (à expédier) pour permettre de réessayer.
+    const reverted = await updateOrder(order.ref, { status: "paid" })
     if (reverted) await refreshOrderMessage(reverted)
     if (order.telegramChatId) {
       await tg("sendMessage", {

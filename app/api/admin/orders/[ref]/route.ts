@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/telegram-auth"
 const STATUSES: OrderStatus[] = [
   "pending",
   "accepted",
+  "paid",
   "generating",
   "label_generated",
   "cancelled",

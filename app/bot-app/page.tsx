@@ -15,11 +15,12 @@ import {
   RefreshCw,
   XCircle,
   CheckCircle2,
+  CreditCard,
   Beaker,
 } from "lucide-react"
 
 // ── Types (sous-ensemble du modèle serveur) ─────────────────────────────────
-type OrderStatus = "pending" | "accepted" | "generating" | "label_generated" | "cancelled"
+type OrderStatus = "pending" | "accepted" | "paid" | "generating" | "label_generated" | "cancelled"
 interface Order {
   ref: string
   status: OrderStatus
@@ -43,6 +44,7 @@ interface Order {
 const STATUS: Record<OrderStatus, { label: string; emoji: string; cls: string }> = {
   pending: { label: "En attente", emoji: "⏳", cls: "bg-amber-100 text-amber-700 border-amber-200" },
   accepted: { label: "À payer", emoji: "💳", cls: "bg-violet-100 text-violet-700 border-violet-200" },
+  paid: { label: "À expédier", emoji: "📦", cls: "bg-indigo-100 text-indigo-700 border-indigo-200" },
   generating: { label: "Génération…", emoji: "🟢", cls: "bg-sky-100 text-sky-700 border-sky-200" },
   label_generated: { label: "Expédiée", emoji: "🚀", cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
   cancelled: { label: "Annulée", emoji: "❌", cls: "bg-rose-100 text-rose-700 border-rose-200" },
@@ -53,7 +55,7 @@ const TABS: { key: string; label: string; status?: OrderStatus }[] = [
   { key: "all", label: "📋 Toutes" },
   { key: "pending", label: "⏳ En attente", status: "pending" },
   { key: "accepted", label: "💳 À payer", status: "accepted" },
-  { key: "generating", label: "📦 À expédier", status: "generating" },
+  { key: "paid", label: "📦 À expédier", status: "paid" },
   { key: "label_generated", label: "🚀 Expédiées", status: "label_generated" },
   { key: "cancelled", label: "❌ Annulées", status: "cancelled" },
 ]
@@ -141,17 +143,30 @@ export default function BotAppPage() {
     }
   }, [tg, load])
 
-  // Auto-refresh léger : reflète les changements (boutons Telegram, autre session)
-  // sans rechargement manuel. En pause quand l'app n'est pas visible ou pendant une action.
+  // Refresh au RETOUR sur l'app (focus/visibilité) — pas de polling de fond.
+  const busyRef = useRef(false)
   useEffect(() => {
-    const id = setInterval(() => {
-      if (!busy && typeof document !== "undefined" && !document.hidden) load()
-    }, 12000)
-    return () => clearInterval(id)
-  }, [busy, load])
+    busyRef.current = busy
+  }, [busy])
+  useEffect(() => {
+    const refresh = () => {
+      if (!document.hidden && !busyRef.current) load()
+    }
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", refresh)
+    return () => {
+      window.removeEventListener("focus", refresh)
+      document.removeEventListener("visibilitychange", refresh)
+    }
+  }, [load])
+
+  // Mise à jour optimiste : remplace la commande modifiée localement (instantané).
+  const applyUpdated = useCallback((u: Order | null | undefined) => {
+    if (u) setOrders((prev) => prev.map((o) => (o.ref === u.ref ? u : o)))
+  }, [])
 
   const counts = useMemo(() => {
-    const toShip = orders.filter((o) => o.status === "accepted" || o.status === "generating").length
+    const toShip = orders.filter((o) => o.status === "accepted" || o.status === "paid").length
     const today = new Date().toDateString()
     const todayCount = orders.filter((o) => new Date(o.createdAt).toDateString() === today).length
     return { toShip, todayCount }
@@ -180,9 +195,9 @@ export default function BotAppPage() {
     async (ref: string) => {
       setBusy(true)
       try {
-        await apiFetch(`/api/admin/orders/${ref}/generate`, { method: "POST" })
+        const { order } = await apiFetch(`/api/admin/orders/${ref}/generate`, { method: "POST" })
+        applyUpdated(order)
         toast.success("Bordereau généré ✅", { description: "PDF envoyé dans le canal Telegram." })
-        await load()
       } catch (e) {
         toast.error("Échec de la génération", { description: String(e).slice(0, 140) })
       } finally {
@@ -196,9 +211,9 @@ export default function BotAppPage() {
     async (ref: string) => {
       setBusy(true)
       try {
-        await apiFetch(`/api/admin/orders/${ref}/cancel`, { method: "POST" })
+        const { order } = await apiFetch(`/api/admin/orders/${ref}/cancel`, { method: "POST" })
+        applyUpdated(order)
         toast.success("Bordereau annulé")
-        await load()
       } catch (e) {
         toast.error("Échec de l'annulation", { description: String(e).slice(0, 140) })
       } finally {
@@ -213,12 +228,12 @@ export default function BotAppPage() {
     async (ref: string, status: OrderStatus, label: string) => {
       setBusy(true)
       try {
-        await apiFetch(`/api/admin/orders/${ref}`, {
+        const { order } = await apiFetch(`/api/admin/orders/${ref}`, {
           method: "PATCH",
           body: JSON.stringify({ status }),
         })
+        applyUpdated(order)
         toast.success(label)
-        await load()
       } catch (e) {
         toast.error("Échec", { description: String(e).slice(0, 140) })
       } finally {
@@ -376,10 +391,10 @@ function DetailView({
 }) {
   const steps: { key: OrderStatus; label: string }[] = [
     { key: "pending", label: "Reçue" },
-    { key: "accepted", label: "Payée" },
+    { key: "paid", label: "Payée" },
     { key: "label_generated", label: "Expédiée" },
   ]
-  const order_idx = ["pending", "accepted", "generating", "label_generated"].indexOf(order.status)
+  const order_idx = ["pending", "accepted", "paid", "generating", "label_generated"].indexOf(order.status)
 
   return (
     <div className="px-3 py-4">
@@ -397,7 +412,7 @@ function DetailView({
         {order.status !== "cancelled" && (
           <div className="my-4 flex items-center">
             {steps.map((s, i) => {
-              const reached = order_idx >= ["pending", "accepted", "generating", "label_generated"].indexOf(s.key)
+              const reached = order_idx >= ["pending", "accepted", "paid", "generating", "label_generated"].indexOf(s.key)
               return (
                 <div key={s.key} className="flex flex-1 items-center last:flex-none">
                   <div className="flex flex-col items-center">
@@ -405,7 +420,7 @@ function DetailView({
                     <span className="mt-1 text-[10px]" style={{ color: hint }}>{s.label}</span>
                   </div>
                   {i < steps.length - 1 && (
-                    <div className={`mx-1 h-0.5 flex-1 ${order_idx > ["pending", "accepted", "generating", "label_generated"].indexOf(s.key) ? "bg-violet-600" : "bg-slate-300"}`} />
+                    <div className={`mx-1 h-0.5 flex-1 ${order_idx > ["pending", "accepted", "paid", "generating", "label_generated"].indexOf(s.key) ? "bg-violet-600" : "bg-slate-300"}`} />
                   )}
                 </div>
               )
@@ -456,6 +471,25 @@ function DetailView({
             </>
           )}
           {order.status === "accepted" && (
+            <>
+              <button
+                onClick={() => onSetStatus("paid", "Paiement validé 💳")}
+                disabled={busy}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 py-3 font-semibold text-white disabled:opacity-60"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                💳 Payé !
+              </button>
+              <button
+                onClick={() => onSetStatus("cancelled", "Commande annulée")}
+                disabled={busy}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-2.5 font-medium text-rose-600 disabled:opacity-60"
+              >
+                <XCircle className="h-4 w-4" /> Annuler la commande
+              </button>
+            </>
+          )}
+          {order.status === "paid" && (
             <>
               <button
                 onClick={onGenerate}

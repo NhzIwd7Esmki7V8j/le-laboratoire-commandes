@@ -8,13 +8,15 @@ export type Country = "FR" | "BE"
 
 // Cycle de vie d'une commande :
 //   pending          → nouvelle, en attente de validation admin
-//   accepted         → acceptée, en attente de paiement
-//   generating       → paiement reçu, génération du bordereau Boxtal en cours (lock)
+//   accepted         → acceptée, en attente de paiement ("À payer")
+//   paid             → paiement reçu, prête à expédier ("À expédier")
+//   generating       → génération du bordereau Boxtal en cours (lock)
 //   label_generated  → bordereau généré (tracking + PDF dispo)
 //   cancelled        → commande / bordereau annulé(e)
 export type OrderStatus =
   | "pending"
   | "accepted"
+  | "paid"
   | "generating"
   | "label_generated"
   | "cancelled"

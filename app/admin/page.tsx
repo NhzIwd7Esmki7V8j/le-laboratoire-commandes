@@ -1,0 +1,552 @@
+"use client"
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { toast } from "sonner"
+import {
+  FlaskConical,
+  RefreshCw,
+  LogOut,
+  Lock,
+  Home,
+  Package,
+  Phone,
+  User,
+  MapPin,
+  Copy,
+  FileText,
+  Loader2,
+  XCircle,
+  CheckCircle2,
+  CreditCard,
+  Beaker,
+  ChevronRight,
+} from "lucide-react"
+
+// ── Types ────────────────────────────────────────────────────────────────────
+type OrderStatus = "pending" | "accepted" | "paid" | "generating" | "label_generated" | "cancelled"
+interface Order {
+  ref: string
+  status: OrderStatus
+  createdAt: number
+  nom: string
+  prenom: string
+  telephone: string
+  message?: string
+  deliveryMode: "domicile" | "relais"
+  pays: "FR" | "BE"
+  adresse?: string
+  codePostal?: string
+  ville?: string
+  pointRelais?: string
+  relayId?: string
+  trackingNumber?: string
+  labelUrl?: string
+}
+
+const STATUS: Record<OrderStatus, { label: string; emoji: string; cls: string }> = {
+  pending: { label: "En attente", emoji: "⏳", cls: "bg-amber-100 text-amber-700 border-amber-200" },
+  accepted: { label: "À payer", emoji: "🟡", cls: "bg-violet-100 text-violet-700 border-violet-200" },
+  paid: { label: "À expédier", emoji: "📦", cls: "bg-indigo-100 text-indigo-700 border-indigo-200" },
+  generating: { label: "Génération…", emoji: "🟢", cls: "bg-sky-100 text-sky-700 border-sky-200" },
+  label_generated: { label: "Expédiée", emoji: "🚀", cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  cancelled: { label: "Annulée", emoji: "❌", cls: "bg-rose-100 text-rose-700 border-rose-200" },
+}
+
+const TABS: { key: string; label: string; status?: OrderStatus }[] = [
+  { key: "all", label: "Toutes" },
+  { key: "pending", label: "En attente", status: "pending" },
+  { key: "accepted", label: "À payer", status: "accepted" },
+  { key: "paid", label: "À expédier", status: "paid" },
+  { key: "label_generated", label: "Expédiées", status: "label_generated" },
+  { key: "cancelled", label: "Annulées", status: "cancelled" },
+]
+
+const FLAG = { FR: "🇫🇷", BE: "🇧🇪" } as const
+
+function fmtDate(ms: number): string {
+  return new Date(ms).toLocaleString("fr-FR", {
+    day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit",
+  })
+}
+function addrSummary(o: Order): string {
+  if (o.deliveryMode === "relais") return o.pointRelais || `Point relais ${o.codePostal ?? ""} ${o.ville ?? ""}`.trim()
+  return [o.adresse, o.codePostal, o.ville].filter(Boolean).join(", ")
+}
+
+export default function AdminPage() {
+  const [authed, setAuthed] = useState<boolean | null>(null)
+  const [password, setPassword] = useState("")
+  const [loginBusy, setLoginBusy] = useState(false)
+  const [loginError, setLoginError] = useState("")
+
+  const [orders, setOrders] = useState<Order[]>([])
+  const [loading, setLoading] = useState(false)
+  const [tab, setTab] = useState("all")
+  const [selected, setSelected] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  useEffect(() => { busyRef.current = busy }, [busy])
+
+  const apiFetch = useCallback(async (path: string, init?: RequestInit) => {
+    const res = await fetch(path, {
+      ...init,
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    })
+    if (res.status === 401) throw new Error("__unauth__")
+    if (!res.ok) throw new Error((await res.text()) || `Erreur ${res.status}`)
+    return res.json()
+  }, [])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { orders } = await apiFetch("/api/admin/orders")
+      setOrders(orders ?? [])
+      setAuthed(true)
+    } catch (e) {
+      if (String(e).includes("__unauth__")) setAuthed(false)
+      else toast.error("Chargement impossible", { description: String(e).slice(0, 120) })
+    } finally {
+      setLoading(false)
+    }
+  }, [apiFetch])
+
+  // Au montage : on tente de charger (le cookie décide si on est connecté).
+  useEffect(() => { load() }, [load])
+
+  // Refresh au RETOUR sur l'onglet/la fenêtre (pas de polling de fond).
+  useEffect(() => {
+    if (!authed) return
+    const refresh = () => { if (!document.hidden && !busyRef.current) load() }
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", refresh)
+    return () => {
+      window.removeEventListener("focus", refresh)
+      document.removeEventListener("visibilitychange", refresh)
+    }
+  }, [authed, load])
+
+  const doLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoginBusy(true)
+    setLoginError("")
+    try {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      })
+      if (!res.ok) {
+        setLoginError("Mot de passe incorrect.")
+        return
+      }
+      setPassword("")
+      await load()
+    } catch {
+      setLoginError("Erreur de connexion. Réessayez.")
+    } finally {
+      setLoginBusy(false)
+    }
+  }
+
+  const logout = async () => {
+    await fetch("/api/admin/logout", { method: "POST", credentials: "include" }).catch(() => {})
+    setAuthed(false)
+    setOrders([])
+    setSelected(null)
+  }
+
+  // Mise à jour optimiste : on remplace la commande modifiée localement (instantané).
+  const applyUpdated = (u: Order | null | undefined) => {
+    if (!u) return
+    setOrders((prev) => prev.map((o) => (o.ref === u.ref ? u : o)))
+  }
+
+  const action = async (
+    path: string,
+    okMsg: string,
+    failMsg: string,
+  ) => {
+    setBusy(true)
+    try {
+      const { order } = await apiFetch(path, { method: "POST" })
+      applyUpdated(order)
+      toast.success(okMsg)
+    } catch (e) {
+      toast.error(failMsg, { description: String(e).slice(0, 140) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const setStatus = async (ref: string, status: OrderStatus, label: string) => {
+    setBusy(true)
+    try {
+      const { order } = await apiFetch(`/api/admin/orders/${ref}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      })
+      applyUpdated(order)
+      toast.success(label)
+    } catch (e) {
+      toast.error("Échec", { description: String(e).slice(0, 140) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const downloadPdf = async (ref: string) => {
+    try {
+      const res = await fetch(`/api/admin/orders/${ref}/label`, { credentials: "include" })
+      if (!res.ok) throw new Error(await res.text())
+      const url = URL.createObjectURL(await res.blob())
+      window.open(url, "_blank")
+    } catch {
+      toast.error("PDF indisponible", { description: "Le bordereau reste dans le canal Telegram." })
+    }
+  }
+
+  const copy = (txt: string) =>
+    navigator.clipboard?.writeText(txt).then(() => toast.success("Copié"), () => {})
+
+  const counts = useMemo(() => {
+    const m: Record<string, number> = { all: orders.length }
+    for (const t of TABS) if (t.status) m[t.key] = orders.filter((o) => o.status === t.status).length
+    return m
+  }, [orders])
+
+  const filtered = useMemo(() => {
+    const status = TABS.find((t) => t.key === tab)?.status
+    return status ? orders.filter((o) => o.status === status) : orders
+  }, [orders, tab])
+
+  const current = useMemo(() => orders.find((o) => o.ref === selected) ?? null, [orders, selected])
+
+  // ── Écran de connexion ──────────────────────────────────────────────────────
+  if (authed === false) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-violet-100 p-4">
+        <form
+          onSubmit={doLogin}
+          className="w-full max-w-sm rounded-2xl border border-violet-200 bg-white p-8 shadow-xl"
+        >
+          <div className="mb-6 text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600">
+              <FlaskConical className="h-7 w-7 text-white" />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900">Le Laboratoire</h1>
+            <p className="text-sm text-slate-500">Back-office — espace réservé</p>
+          </div>
+          <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+            <Lock className="h-4 w-4 text-violet-500" /> Mot de passe
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoFocus
+            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+            placeholder="••••••••"
+          />
+          {loginError && <p className="mt-2 text-sm text-rose-600">{loginError}</p>}
+          <button
+            type="submit"
+            disabled={loginBusy || !password}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-violet-600 py-2.5 font-semibold text-white transition hover:bg-violet-700 disabled:opacity-60"
+          >
+            {loginBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+            Se connecter
+          </button>
+        </form>
+      </div>
+    )
+  }
+
+  // ── Écran de chargement initial ─────────────────────────────────────────────
+  if (authed === null) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-500">
+        <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Chargement…
+      </div>
+    )
+  }
+
+  // ── Back-office ─────────────────────────────────────────────────────────────
+  return (
+    <div className="flex min-h-screen flex-col bg-slate-100 text-slate-800">
+      {/* Header */}
+      <header className="flex items-center justify-between bg-gradient-to-r from-violet-700 to-fuchsia-700 px-5 py-3 text-white shadow">
+        <div className="flex items-center gap-2">
+          <FlaskConical className="h-5 w-5" />
+          <span className="font-bold">Le Laboratoire — Back-office</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="rounded-lg p-2 hover:bg-white/15" title="Rafraîchir">
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            onClick={logout}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm hover:bg-white/15"
+          >
+            <LogOut className="h-4 w-4" /> Déconnexion
+          </button>
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar filtres */}
+        <aside className="w-48 shrink-0 border-r border-slate-200 bg-white p-3">
+          <nav className="space-y-1">
+            {TABS.map((t) => {
+              const n = t.status ? counts[t.key] ?? 0 : orders.length
+              const active = tab === t.key
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                    active ? "bg-violet-600 font-semibold text-white" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  <span>{t.label}</span>
+                  <span className={active ? "text-white/80" : "text-slate-400"}>{n}</span>
+                </button>
+              )
+            })}
+          </nav>
+        </aside>
+
+        {/* Tableau */}
+        <main className="flex-1 overflow-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead className="sticky top-0 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">Réf</th>
+                <th className="px-4 py-2.5 font-medium">Client</th>
+                <th className="px-4 py-2.5 font-medium">Livraison</th>
+                <th className="px-4 py-2.5 font-medium">Date</th>
+                <th className="px-4 py-2.5 font-medium">Statut</th>
+                <th className="px-2 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && orders.length === 0 ? (
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Chargement…</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={6} className="px-4 py-16 text-center text-slate-400">
+                  <Beaker className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                  Aucune commande dans cette catégorie.
+                </td></tr>
+              ) : (
+                filtered.map((o) => (
+                  <tr
+                    key={o.ref}
+                    onClick={() => setSelected(o.ref)}
+                    className={`cursor-pointer border-b border-slate-100 transition hover:bg-violet-50 ${
+                      selected === o.ref ? "bg-violet-50" : "bg-white"
+                    }`}
+                  >
+                    <td className="px-4 py-3 font-mono text-xs font-semibold text-violet-600">{o.ref}</td>
+                    <td className="px-4 py-3">
+                      <span className="font-medium">{o.prenom} {o.nom}</span> {FLAG[o.pays]}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">
+                      <span className="inline-flex items-center gap-1">
+                        {o.deliveryMode === "relais" ? <Package className="h-3.5 w-3.5" /> : <Home className="h-3.5 w-3.5" />}
+                        <span className="max-w-[220px] truncate">{addrSummary(o)}</span>
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-400">{fmtDate(o.createdAt)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS[o.status].cls}`}>
+                        {STATUS[o.status].emoji} {STATUS[o.status].label}
+                      </span>
+                    </td>
+                    <td className="px-2 py-3 text-slate-300"><ChevronRight className="h-4 w-4" /></td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </main>
+
+        {/* Panneau détail */}
+        {current && (
+          <DetailPanel
+            order={current}
+            busy={busy}
+            onClose={() => setSelected(null)}
+            onAccept={() => setStatus(current.ref, "accepted", "Commande acceptée ✅")}
+            onRefuse={() => setStatus(current.ref, "cancelled", "Commande refusée")}
+            onPaid={() => setStatus(current.ref, "paid", "Paiement validé 💳")}
+            onCancelOrder={() => setStatus(current.ref, "cancelled", "Commande annulée")}
+            onGenerate={() => action(`/api/admin/orders/${current.ref}/generate`, "Bordereau généré ✅", "Échec de la génération")}
+            onCancelLabel={() => action(`/api/admin/orders/${current.ref}/cancel`, "Bordereau annulé", "Échec de l'annulation")}
+            onDownload={() => downloadPdf(current.ref)}
+            onCopy={copy}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Panneau détail (droite) ──────────────────────────────────────────────────
+function DetailPanel({
+  order, busy, onClose, onAccept, onRefuse, onPaid, onCancelOrder, onGenerate, onCancelLabel, onDownload, onCopy,
+}: {
+  order: Order
+  busy: boolean
+  onClose: () => void
+  onAccept: () => void
+  onRefuse: () => void
+  onPaid: () => void
+  onCancelOrder: () => void
+  onGenerate: () => void
+  onCancelLabel: () => void
+  onDownload: () => void
+  onCopy: (t: string) => void
+}) {
+  const STEPS: OrderStatus[] = ["pending", "accepted", "paid", "generating", "label_generated"]
+  const idx = STEPS.indexOf(order.status)
+  const timeline = [
+    { key: "pending", label: "Reçue" },
+    { key: "paid", label: "Payée" },
+    { key: "label_generated", label: "Expédiée" },
+  ]
+
+  return (
+    <aside className="w-[380px] shrink-0 overflow-auto border-l border-slate-200 bg-white">
+      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+        <span className="font-mono text-sm font-bold text-violet-600">{order.ref}</span>
+        <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+          <XCircle className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="p-4">
+        <span className={`inline-block rounded-full border px-2.5 py-1 text-xs font-medium ${STATUS[order.status].cls}`}>
+          {STATUS[order.status].emoji} {STATUS[order.status].label}
+        </span>
+
+        {order.status !== "cancelled" && (
+          <div className="my-4 flex items-center">
+            {timeline.map((s, i) => {
+              const reached = idx >= STEPS.indexOf(s.key as OrderStatus)
+              return (
+                <div key={s.key} className="flex flex-1 items-center last:flex-none">
+                  <div className="flex flex-col items-center">
+                    <div className={`h-3 w-3 rounded-full ${reached ? "bg-violet-600" : "bg-slate-300"}`} />
+                    <span className="mt-1 text-[10px] text-slate-400">{s.label}</span>
+                  </div>
+                  {i < timeline.length - 1 && (
+                    <div className={`mx-1 h-0.5 flex-1 ${idx > STEPS.indexOf(s.key as OrderStatus) ? "bg-violet-600" : "bg-slate-300"}`} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        <div className="mt-3 space-y-2 text-sm">
+          <Row icon={<User className="h-4 w-4" />}>{order.prenom} {order.nom} {FLAG[order.pays]}</Row>
+          <Row icon={<Phone className="h-4 w-4" />}>
+            <a href={`tel:${order.telephone}`} className="text-violet-600">{order.telephone}</a>
+          </Row>
+          <Row icon={order.deliveryMode === "relais" ? <Package className="h-4 w-4" /> : <Home className="h-4 w-4" />}>
+            {order.deliveryMode === "relais" ? "Point relais" : "Livraison à domicile"}
+          </Row>
+          <Row icon={<MapPin className="h-4 w-4" />}>{addrSummary(order)}</Row>
+          {order.relayId && <p className="pl-6 text-xs text-slate-400">ID relais : {order.relayId}</p>}
+          {order.message && (
+            <div className="rounded-lg bg-slate-50 p-2.5 text-sm">
+              <p className="mb-0.5 text-xs font-medium text-slate-400">Commande & prix</p>
+              <p className="italic text-slate-700">{order.message}</p>
+            </div>
+          )}
+          {order.trackingNumber && (
+            <button onClick={() => onCopy(order.trackingNumber!)} className="flex items-center gap-1.5 pl-6 font-mono text-xs text-emerald-600">
+              📦 {order.trackingNumber} <Copy className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+
+        <div className="mt-5 space-y-2">
+          {order.status === "pending" && (
+            <>
+              <ActionBtn onClick={onAccept} busy={busy} primary icon={<CheckCircle2 className="h-4 w-4" />}>Accepter la commande</ActionBtn>
+              <ActionBtn onClick={onRefuse} busy={busy} danger icon={<XCircle className="h-4 w-4" />}>Refuser</ActionBtn>
+            </>
+          )}
+          {order.status === "accepted" && (
+            <>
+              <ActionBtn onClick={onPaid} busy={busy} primary icon={<CreditCard className="h-4 w-4" />}>Payé !</ActionBtn>
+              <ActionBtn onClick={onCancelOrder} busy={busy} danger icon={<XCircle className="h-4 w-4" />}>Annuler la commande</ActionBtn>
+            </>
+          )}
+          {order.status === "paid" && (
+            <>
+              <ActionBtn onClick={onGenerate} busy={busy} primary icon={<Beaker className="h-4 w-4" />}>Générer le bordereau</ActionBtn>
+              <ActionBtn onClick={onCancelOrder} busy={busy} danger icon={<XCircle className="h-4 w-4" />}>Annuler la commande</ActionBtn>
+            </>
+          )}
+          {order.status === "generating" && (
+            <div className="flex items-center justify-center gap-2 rounded-lg bg-sky-50 py-3 text-sm font-medium text-sky-700">
+              <Loader2 className="h-4 w-4 animate-spin" /> Génération en cours…
+            </div>
+          )}
+          {order.status === "label_generated" && (
+            <>
+              <ActionBtn onClick={onDownload} success icon={<FileText className="h-4 w-4" />}>Télécharger le PDF</ActionBtn>
+              <ActionBtn onClick={onCancelLabel} busy={busy} danger icon={<XCircle className="h-4 w-4" />}>Annuler le bordereau</ActionBtn>
+            </>
+          )}
+          {order.status === "cancelled" && (
+            <p className="py-2 text-center text-sm text-slate-400">Commande annulée.</p>
+          )}
+        </div>
+      </div>
+    </aside>
+  )
+}
+
+function Row({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-slate-400">{icon}</span>
+      <span>{children}</span>
+    </div>
+  )
+}
+
+function ActionBtn({
+  onClick, busy, primary, danger, success, icon, children,
+}: {
+  onClick: () => void
+  busy?: boolean
+  primary?: boolean
+  danger?: boolean
+  success?: boolean
+  icon: React.ReactNode
+  children: React.ReactNode
+}) {
+  const cls = primary
+    ? "bg-violet-600 text-white hover:bg-violet-700"
+    : success
+    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+    : danger
+    ? "border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
+    : "border border-slate-200 text-slate-700 hover:bg-slate-50"
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className={`flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition disabled:opacity-60 ${cls}`}
+    >
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
+      {children}
+    </button>
+  )
+}

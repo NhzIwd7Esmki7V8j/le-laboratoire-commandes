@@ -53,6 +53,12 @@ export async function POST(req: Request) {
         await answer("Commande annulée ❌")
         break
       }
+      case "pay": {
+        const updated = await updateOrder(ref, { status: "paid" })
+        if (updated) await refreshOrderMessage(updated)
+        await answer("Paiement validé 💳 — à expédier")
+        break
+      }
       case "gen":
         await generateLabelForOrder(order, answer).catch(() => {})
         break

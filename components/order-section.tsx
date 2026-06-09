@@ -7,13 +7,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   ShoppingBag,
   User,
   MapPin,
@@ -347,22 +340,36 @@ export function OrderSection() {
 
                 {/* Pays de livraison */}
                 <div className="space-y-2">
-                  <Label htmlFor="pays" className="flex items-center gap-1.5 text-slate-700">
+                  <Label className="flex items-center gap-1.5 text-slate-700">
                     <Globe className="h-4 w-4 text-violet-500" />
                     Pays de livraison
                   </Label>
-                  <Select value={form.pays} onValueChange={handleCountryChange}>
-                    <SelectTrigger
-                      id="pays"
-                      className="border-slate-300 focus:ring-violet-500"
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleCountryChange("FR")}
+                      aria-pressed={form.pays === "FR"}
+                      className={`flex items-center justify-center gap-2 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
+                        form.pays === "FR"
+                          ? "border-violet-500 bg-violet-50 text-violet-700"
+                          : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
                     >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="FR">🇫🇷 France</SelectItem>
-                      <SelectItem value="BE">🇧🇪 Belgique</SelectItem>
-                    </SelectContent>
-                  </Select>
+                      🇫🇷 France
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCountryChange("BE")}
+                      aria-pressed={form.pays === "BE"}
+                      className={`flex items-center justify-center gap-2 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
+                        form.pays === "BE"
+                          ? "border-violet-500 bg-violet-50 text-violet-700"
+                          : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      🇧🇪 Belgique
+                    </button>
+                  </div>
                 </div>
 
                 {/* Mode de livraison */}

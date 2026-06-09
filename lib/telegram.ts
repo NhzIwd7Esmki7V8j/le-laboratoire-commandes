@@ -56,6 +56,8 @@ function statusFooter(order: Order): string {
       return "⏳ En attente de validation"
     case "accepted":
       return "🟡 Acceptée — en attente de paiement"
+    case "paid":
+      return "📦 Payé — à expédier"
     case "generating":
       return "🟢 Paiement validé — génération du bordereau…"
     case "label_generated":
@@ -120,8 +122,12 @@ export function orderButtons(order: Order): { inline_keyboard: InlineButton[][] 
       ])
       break
     case "accepted":
+      rows.push([{ text: "💳 Payé !", callback_data: `pay:${order.ref}` }])
+      rows.push([{ text: "❌ Annuler", callback_data: `ref:${order.ref}` }])
+      break
+    case "paid":
       rows.push([
-        { text: "💳 Paiement reçu → générer le bordereau", callback_data: `gen:${order.ref}` },
+        { text: "⚗️ Générer le bordereau", callback_data: `gen:${order.ref}` },
       ])
       rows.push([{ text: "❌ Annuler", callback_data: `ref:${order.ref}` }])
       break

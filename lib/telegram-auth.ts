@@ -4,6 +4,7 @@
 // C'est la SEULE protection d'accès à l'API admin : chaque route admin doit appeler
 // requireAdmin(req) et refuser si invalide ou si l'utilisateur n'est pas l'admin.
 import crypto from "crypto"
+import { SESSION_COOKIE, verifySession, parseCookies } from "./admin-session"
 
 export function validateInitData(
   initData: string,
@@ -47,18 +48,21 @@ export type AdminCheck =
 // Garde à appeler en tête de CHAQUE route admin.
 // L'init data est transmis par la Mini App dans le header X-Telegram-Init-Data.
 export function requireAdmin(req: Request): AdminCheck {
-  // Bypass LOCAL uniquement (prévisualisation du dashboard sans Telegram).
-  // En production (Netlify) NODE_ENV='production' → contrôle complet appliqué.
-  if (process.env.NODE_ENV !== "production") return { ok: true }
+  // 1) Back-office WEB : cookie de session signé (mot de passe).
+  const cookies = parseCookies(req.headers.get("cookie"))
+  if (verifySession(cookies[SESSION_COOKIE])) return { ok: true }
 
+  // 2) Mini App TELEGRAM : initData signé.
   const initData = req.headers.get("X-Telegram-Init-Data") ?? ""
   const botToken = process.env.TELEGRAM_BOT_TOKEN ?? ""
   const { valid, userId } = validateInitData(initData, botToken)
-  if (!valid) return { ok: false, status: 401, message: "initData invalide" }
-
-  const adminId = process.env.ADMIN_TELEGRAM_USER_ID
-  if (adminId && String(userId) !== String(adminId)) {
-    return { ok: false, status: 403, message: "accès réservé à l'admin" }
+  if (valid) {
+    const adminId = process.env.ADMIN_TELEGRAM_USER_ID
+    if (adminId && String(userId) !== String(adminId)) {
+      return { ok: false, status: 403, message: "accès réservé à l'admin" }
+    }
+    return { ok: true, userId }
   }
-  return { ok: true, userId }
+
+  return { ok: false, status: 401, message: "non autorisé" }
 }
