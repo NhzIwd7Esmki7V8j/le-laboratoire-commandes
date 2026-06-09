@@ -160,11 +160,12 @@ export default function AdminPage() {
     }
   }, [authed, load])
 
-  const doLogin = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    // Lit le mot de passe DIRECTEMENT depuis le champ (robuste si l'autofill mobile
-    // n'a pas déclenché le onChange React et laissé l'état vide).
-    const pwd = (new FormData(e.currentTarget).get("password")?.toString() || password || "").trim()
+  const doLogin = async () => {
+    const pwd = (password || "").trim()
+    if (!pwd) {
+      setLoginError("Entre le mot de passe.")
+      return
+    }
     setLoginBusy(true)
     setLoginError("")
     try {
@@ -297,7 +298,10 @@ export default function AdminPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-violet-100 p-4">
         <form
-          onSubmit={doLogin}
+          onSubmit={(e) => {
+            e.preventDefault()
+            doLogin()
+          }}
           className="w-full max-w-sm rounded-2xl border border-violet-200 bg-white p-8 shadow-xl"
         >
           <div className="mb-6 text-center">
@@ -320,7 +324,8 @@ export default function AdminPage() {
           />
           {loginError && <p className="mt-2 text-sm text-rose-600">{loginError}</p>}
           <button
-            type="submit"
+            type="button"
+            onClick={doLogin}
             disabled={loginBusy}
             className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-violet-600 py-2.5 font-semibold text-white transition hover:bg-violet-700 disabled:opacity-60"
           >
