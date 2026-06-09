@@ -1,6 +1,6 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
+import { useEffect, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -34,6 +34,12 @@ const admins = [
 ]
 
 export function ContactModal({ children }: ContactModalProps) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  // Avant l'hydratation : on rend uniquement le déclencheur (le bouton), sans le Dialog
+  // Radix, pour éviter tout mismatch d'ID serveur/client qui cassait l'interactivité mobile.
+  if (!mounted) return <>{children}</>
+
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
