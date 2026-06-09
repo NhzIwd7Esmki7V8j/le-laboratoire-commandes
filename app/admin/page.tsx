@@ -160,8 +160,11 @@ export default function AdminPage() {
     }
   }, [authed, load])
 
-  const doLogin = async (e: React.FormEvent) => {
+  const doLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    // Lit le mot de passe DIRECTEMENT depuis le champ (robuste si l'autofill mobile
+    // n'a pas déclenché le onChange React et laissé l'état vide).
+    const pwd = (new FormData(e.currentTarget).get("password")?.toString() || password || "").trim()
     setLoginBusy(true)
     setLoginError("")
     try {
@@ -169,7 +172,7 @@ export default function AdminPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password: pwd }),
       })
       if (!res.ok) {
         setLoginError("Mot de passe incorrect.")
@@ -309,16 +312,16 @@ export default function AdminPage() {
           </label>
           <input
             type="password"
+            name="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoFocus
             className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
             placeholder="••••••••"
           />
           {loginError && <p className="mt-2 text-sm text-rose-600">{loginError}</p>}
           <button
             type="submit"
-            disabled={loginBusy || !password}
+            disabled={loginBusy}
             className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-violet-600 py-2.5 font-semibold text-white transition hover:bg-violet-700 disabled:opacity-60"
           >
             {loginBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
