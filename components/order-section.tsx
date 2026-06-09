@@ -537,15 +537,14 @@ export function OrderSection() {
                     Détail de votre commande &amp; prix
                   </Label>
                   <p className="text-xs text-slate-500">
-                    Indiquez précisément les produits souhaités, les quantités et le prix convenu avec
-                    l&apos;équipe.
+                    Le peptide, la quantité, le prix.
                   </p>
                   <Textarea
                     id="message"
                     value={form.message}
                     onChange={handleMessageChange}
                     onBlur={handleBlur("message")}
-                    placeholder="Ex : 2x BPC-157 5mg + 1x TB-500 5mg — 90€ convenus avec l'équipe"
+                    placeholder="Ex : BPC-157 5mg, x2, 90€"
                     rows={4}
                     maxLength={1000}
                     aria-invalid={!!errors.message}

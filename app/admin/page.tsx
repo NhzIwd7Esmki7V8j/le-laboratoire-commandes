@@ -20,6 +20,7 @@ import {
   CreditCard,
   Beaker,
   ChevronRight,
+  ChevronDown,
 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ export default function AdminPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(false)
   const [tab, setTab] = useState("all")
+  const [filterOpen, setFilterOpen] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
@@ -298,23 +300,43 @@ export default function AdminPage() {
         </div>
       </header>
 
-      {/* Filtres — chips horizontales (mobile uniquement) */}
-      <div className="flex gap-2 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 md:hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {TABS.map((t) => {
-          const n = t.status ? counts[t.key] ?? 0 : orders.length
-          const active = tab === t.key
-          return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                active ? "border-violet-600 bg-violet-600 text-white" : "border-slate-200 bg-white text-slate-600"
-              }`}
-            >
-              {t.label} <span className={active ? "text-white/80" : "text-slate-400"}>({n})</span>
-            </button>
-          )
-        })}
+      {/* Filtre — menu déroulant (mobile) */}
+      <div className="relative z-30 border-b border-slate-200 bg-white px-3 py-2 md:hidden">
+        <button
+          onClick={() => setFilterOpen((o) => !o)}
+          className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700"
+        >
+          <span>
+            {TABS.find((t) => t.key === tab)?.label}{" "}
+            <span className="text-slate-400">
+              ({tab === "all" ? orders.length : counts[tab] ?? 0})
+            </span>
+          </span>
+          <ChevronDown className={`h-4 w-4 text-slate-400 transition ${filterOpen ? "rotate-180" : ""}`} />
+        </button>
+        {filterOpen && (
+          <div className="absolute left-3 right-3 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+            {TABS.map((t) => {
+              const n = t.status ? counts[t.key] ?? 0 : orders.length
+              const active = tab === t.key
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => {
+                    setTab(t.key)
+                    setFilterOpen(false)
+                  }}
+                  className={`flex w-full items-center justify-between px-3 py-2.5 text-sm ${
+                    active ? "bg-violet-50 font-semibold text-violet-700" : "text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <span>{t.label}</span>
+                  <span className="text-slate-400">{n}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-1 overflow-hidden">
