@@ -12,8 +12,9 @@ export type InlineButton =
   | { text: string; callback_data: string }
   | { text: string; url: string }
 
-export async function tg(method: string, payload: unknown): Promise<Response> {
-  return fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
+// `token` permet d'envoyer via un autre bot (ex: le bot de suivi client). Défaut = bot admin.
+export async function tg(method: string, payload: unknown, token?: string): Promise<Response> {
+  return fetch(`https://api.telegram.org/bot${token ?? TOKEN}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

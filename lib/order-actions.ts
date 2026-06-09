@@ -35,7 +35,12 @@ async function notifyCustomerTracking(order: Order): Promise<void> {
     `📦 <b>Ta commande ${escapeHtml(order.ref)} est expédiée !</b>\n` +
     `🔖 Suivi : <b>${escapeHtml(order.trackingNumber ?? "—")}</b>` +
     (order.labelUrl ? `\n🔗 ${escapeHtml(order.labelUrl)}` : "")
-  await tg("sendMessage", { chat_id: order.customerChatId, text, parse_mode: "HTML" }).catch(() => {})
+  // Envoi via le BOT DE SUIVI dédié (pas le bot admin).
+  await tg(
+    "sendMessage",
+    { chat_id: order.customerChatId, text, parse_mode: "HTML" },
+    process.env.TELEGRAM_TRACKING_BOT_TOKEN,
+  ).catch(() => {})
 }
 
 // Génère le bordereau Boxtal — idempotent + lock optimiste (chaque bordereau est facturé).

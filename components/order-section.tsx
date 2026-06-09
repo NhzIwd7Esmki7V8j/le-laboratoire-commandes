@@ -34,8 +34,8 @@ const PHONE_REGEX = /^\+?[0-9 ().-]{8,20}$/
 const CP_REGEX_FR = /^\d{5}$/
 const CP_REGEX_BE = /^\d{4}$/
 
-// Bot Telegram (pour le lien « Recevoir mon suivi »)
-const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || "labo_commandes_bot"
+// Bot Telegram de SUIVI client (pour le lien « Recevoir mon suivi »)
+const BOT_USERNAME = process.env.NEXT_PUBLIC_TRACKING_BOT_USERNAME || "labo_num_suivi_bot"
 
 type Field = "nom" | "prenom" | "adresse" | "telephone" | "codePostal" | "ville" | "pointRelais" | "message"
 type DeliveryMode = "domicile" | "relais"
