@@ -145,8 +145,9 @@ export default function AdminPage() {
     }
   }, [apiFetch])
 
-  // Au montage : on tente de charger (le cookie décide si on est connecté).
-  useEffect(() => { load() }, [load])
+  // PAS de connexion auto au montage : on exige TOUJOURS le mot de passe à l'ouverture
+  // (sinon le cookie de session ferait entrer direct quiconque ouvre /admin = dangereux).
+  // load() n'est appelé qu'APRÈS une saisie réussie du mot de passe (dans doLogin).
 
   // Refresh au RETOUR sur l'onglet/la fenêtre (pas de polling de fond).
   useEffect(() => {
