@@ -277,27 +277,49 @@ export default function AdminPage() {
   return (
     <div className="flex min-h-screen flex-col bg-slate-100 text-slate-800">
       {/* Header */}
-      <header className="flex items-center justify-between bg-gradient-to-r from-violet-700 to-fuchsia-700 px-5 py-3 text-white shadow">
-        <div className="flex items-center gap-2">
-          <FlaskConical className="h-5 w-5" />
-          <span className="font-bold">Le Laboratoire — Back-office</span>
+      <header className="flex items-center justify-between gap-2 bg-gradient-to-r from-violet-700 to-fuchsia-700 px-4 py-3 text-white shadow sm:px-5">
+        <div className="flex min-w-0 items-center gap-2">
+          <FlaskConical className="h-5 w-5 shrink-0" />
+          <span className="truncate font-bold">
+            Le Laboratoire<span className="hidden sm:inline"> — Back-office</span>
+          </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <button onClick={load} className="rounded-lg p-2 hover:bg-white/15" title="Rafraîchir">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
           <button
             onClick={logout}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm hover:bg-white/15"
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm hover:bg-white/15 sm:px-3"
           >
-            <LogOut className="h-4 w-4" /> Déconnexion
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Déconnexion</span>
           </button>
         </div>
       </header>
 
+      {/* Filtres — chips horizontales (mobile uniquement) */}
+      <div className="flex gap-2 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 md:hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {TABS.map((t) => {
+          const n = t.status ? counts[t.key] ?? 0 : orders.length
+          const active = tab === t.key
+          return (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                active ? "border-violet-600 bg-violet-600 text-white" : "border-slate-200 bg-white text-slate-600"
+              }`}
+            >
+              {t.label} <span className={active ? "text-white/80" : "text-slate-400"}>({n})</span>
+            </button>
+          )
+        })}
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar filtres */}
-        <aside className="w-48 shrink-0 border-r border-slate-200 bg-white p-3">
+        {/* Sidebar filtres (desktop) */}
+        <aside className="hidden w-48 shrink-0 border-r border-slate-200 bg-white p-3 md:block">
           <nav className="space-y-1">
             {TABS.map((t) => {
               const n = t.status ? counts[t.key] ?? 0 : orders.length
@@ -318,9 +340,10 @@ export default function AdminPage() {
           </nav>
         </aside>
 
-        {/* Tableau */}
+        {/* Liste */}
         <main className="flex-1 overflow-auto">
-          <table className="w-full border-collapse text-sm">
+          {/* Tableau (desktop) */}
+          <table className="hidden w-full border-collapse text-sm md:table">
             <thead className="sticky top-0 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-2.5 font-medium">Réf</th>
@@ -370,6 +393,46 @@ export default function AdminPage() {
               )}
             </tbody>
           </table>
+
+          {/* Cartes (mobile) */}
+          <div className="space-y-2.5 p-3 md:hidden">
+            {loading && orders.length === 0 ? (
+              <p className="py-10 text-center text-slate-400">Chargement…</p>
+            ) : filtered.length === 0 ? (
+              <div className="py-16 text-center text-slate-400">
+                <Beaker className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                Aucune commande dans cette catégorie.
+              </div>
+            ) : (
+              filtered.map((o) => (
+                <button
+                  key={o.ref}
+                  onClick={() => setSelected(o.ref)}
+                  className="w-full rounded-xl border border-slate-200 bg-white p-3.5 text-left shadow-sm transition active:scale-[0.99]"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs font-semibold text-violet-600">{o.ref}</span>
+                    <span className="text-[11px] text-slate-400">{fmtDate(o.createdAt)}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{o.prenom} {o.nom} {FLAG[o.pays]}</p>
+                      <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-slate-500">
+                        {o.deliveryMode === "relais" ? <Package className="h-3 w-3" /> : <Home className="h-3 w-3" />}
+                        <span className="truncate">{addrSummary(o)}</span>
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS[o.status].cls}`}>
+                      {STATUS[o.status].emoji} {STATUS[o.status].label}
+                    </span>
+                  </div>
+                  {o.trackingNumber && (
+                    <p className="mt-1.5 font-mono text-[11px] text-emerald-600">📦 {o.trackingNumber}</p>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
         </main>
 
         {/* Panneau détail */}
@@ -418,7 +481,7 @@ function DetailPanel({
   ]
 
   return (
-    <aside className="w-[380px] shrink-0 overflow-auto border-l border-slate-200 bg-white">
+    <aside className="fixed inset-0 z-50 w-full shrink-0 overflow-auto border-slate-200 bg-white md:relative md:inset-auto md:z-auto md:w-[380px] md:border-l">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <span className="font-mono text-sm font-bold text-violet-600">{order.ref}</span>
         <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
