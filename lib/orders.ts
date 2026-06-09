@@ -46,6 +46,8 @@ export interface Order {
   // Telegram (pour pouvoir éditer le message depuis le webhook ET la Mini App)
   telegramChatId?: number
   telegramMessageId?: number
+  // Telegram du CLIENT (rempli s'il démarre le bot via le lien « Recevoir mon suivi »)
+  customerChatId?: number
 
   // Boxtal (renseigné une fois le bordereau généré)
   shipmentId?: string

@@ -34,6 +34,9 @@ const PHONE_REGEX = /^\+?[0-9 ().-]{8,20}$/
 const CP_REGEX_FR = /^\d{5}$/
 const CP_REGEX_BE = /^\d{4}$/
 
+// Bot Telegram (pour le lien « Recevoir mon suivi »)
+const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || "labo_commandes_bot"
+
 type Field = "nom" | "prenom" | "adresse" | "telephone" | "codePostal" | "ville" | "pointRelais" | "message"
 type DeliveryMode = "domicile" | "relais"
 type Country = "FR" | "BE"
@@ -264,6 +267,23 @@ export function OrderSection() {
                     </span>
                     <span className="text-xl font-bold text-violet-700">{orderRef}</span>
                     <span className="text-[11px] text-violet-400">Conservez-le pour le suivi</span>
+                  </div>
+                )}
+                {orderRef && (
+                  <div className="mb-6">
+                    <a
+                      href={`https://t.me/${BOT_USERNAME}?start=${orderRef}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-5 py-3 font-semibold text-white shadow-lg shadow-sky-500/25 transition-all duration-300 hover:scale-105 hover:bg-sky-600"
+                    >
+                      <Send className="h-5 w-5" />
+                      Recevoir mon suivi sur Telegram
+                    </a>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Clique, appuie sur « Démarrer » : tu recevras ton numéro de suivi automatiquement
+                      dès l&apos;expédition.
+                    </p>
                   </div>
                 )}
                 <p className="text-slate-600 mb-6 max-w-md mx-auto">

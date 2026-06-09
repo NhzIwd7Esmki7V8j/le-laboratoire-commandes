@@ -9,6 +9,31 @@ import { listSenders } from "@/lib/senders"
 
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET
 
+// Le client démarre le bot avec "/start CMD_xxx" → on lie son chat à la commande
+// pour pouvoir lui envoyer son suivi automatiquement à l'expédition.
+async function handleStart(msg: any): Promise<void> {
+  const chatId = msg?.chat?.id
+  if (!chatId) return
+  const ref = String(msg.text).split(/\s+/)[1]?.trim()
+  if (!ref) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "👋 Bonjour ! Passe ta commande sur notre site, puis clique « Recevoir mon suivi » pour être notifié ici dès l'expédition.",
+    })
+    return
+  }
+  const order = await getOrder(ref)
+  if (!order) {
+    await tg("sendMessage", { chat_id: chatId, text: "Commande introuvable — vérifie ton lien de suivi." })
+    return
+  }
+  await updateOrder(ref, { customerChatId: chatId })
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `✅ C'est noté ! Tu recevras ton numéro de suivi ici dès que ta commande ${ref} sera expédiée. 📦`,
+  })
+}
+
 export async function POST(req: Request) {
   // Sécurité : Telegram renvoie le secret défini lors du setWebhook.
   if (secret && req.headers.get("x-telegram-bot-api-secret-token") !== secret) {
@@ -20,6 +45,13 @@ export async function POST(req: Request) {
     update = await req.json()
   } catch {
     return new Response("bad json", { status: 400 })
+  }
+
+  // Message du CLIENT : "/start CMD_xxx" (via le bouton « Recevoir mon suivi »).
+  const msg = update?.message
+  if (msg && typeof msg.text === "string" && msg.text.startsWith("/start")) {
+    await handleStart(msg).catch(() => {})
+    return new Response("ok", { status: 200 })
   }
 
   const cb = update?.callback_query

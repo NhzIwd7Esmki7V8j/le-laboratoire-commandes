@@ -28,6 +28,16 @@ async function sendLabelPdf(order: Order, pdf: Uint8Array): Promise<void> {
   await fetch(`https://api.telegram.org/bot${TOKEN}/sendDocument`, { method: "POST", body: fd })
 }
 
+// Envoie le numéro de suivi au CLIENT (s'il a démarré le bot via « Recevoir mon suivi »).
+async function notifyCustomerTracking(order: Order): Promise<void> {
+  if (!order.customerChatId) return
+  const text =
+    `📦 <b>Ta commande ${escapeHtml(order.ref)} est expédiée !</b>\n` +
+    `🔖 Suivi : <b>${escapeHtml(order.trackingNumber ?? "—")}</b>` +
+    (order.labelUrl ? `\n🔗 ${escapeHtml(order.labelUrl)}` : "")
+  await tg("sendMessage", { chat_id: order.customerChatId, text, parse_mode: "HTML" }).catch(() => {})
+}
+
 // Génère le bordereau Boxtal — idempotent + lock optimiste (chaque bordereau est facturé).
 export async function generateLabelForOrder(
   order: Order,
@@ -66,6 +76,7 @@ export async function generateLabelForOrder(
     if (done) {
       await sendLabelPdf(done, pdf)
       await refreshOrderMessage(done)
+      await notifyCustomerTracking(done)
     }
     return done
   } catch (err) {
