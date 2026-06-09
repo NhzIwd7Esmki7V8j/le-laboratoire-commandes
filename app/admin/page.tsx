@@ -584,15 +584,18 @@ function DetailPanel({
   ]
 
   return (
-    <aside className="fixed inset-0 z-50 w-full shrink-0 overflow-auto border-slate-200 bg-white md:relative md:inset-auto md:z-auto md:w-[380px] md:border-l">
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+    <aside className="fixed inset-0 z-50 flex w-full flex-col bg-white md:relative md:inset-auto md:z-auto md:w-[380px] md:border-l md:border-slate-200">
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3">
         <span className="font-mono text-sm font-bold text-violet-600">{order.ref}</span>
-        <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
-          <XCircle className="h-5 w-5" />
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-100"
+        >
+          Fermer <XCircle className="h-5 w-5" />
         </button>
       </div>
 
-      <div className="p-4">
+      <div className="flex-1 overflow-y-auto p-4 pb-12">
         <span className={`inline-block rounded-full border px-2.5 py-1 text-xs font-medium ${STATUS[order.status].cls}`}>
           {STATUS[order.status].emoji} {STATUS[order.status].label}
         </span>
