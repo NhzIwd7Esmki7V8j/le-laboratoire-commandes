@@ -5,6 +5,7 @@
 import { getOrder, updateOrder } from "@/lib/orders"
 import { tg, refreshOrderMessage } from "@/lib/telegram"
 import { generateLabelForOrder, cancelAndDelete, type Answer } from "@/lib/order-actions"
+import { listSenders } from "@/lib/senders"
 
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET
 
@@ -24,7 +25,9 @@ export async function POST(req: Request) {
   const cb = update?.callback_query
   if (!cb) return new Response("ok", { status: 200 })
 
-  const [action, ref] = String(cb.data ?? "").split(":")
+  const parts = String(cb.data ?? "").split(":")
+  const action = parts[0]
+  const ref = parts[1]
   const answer: Answer = (text, alert = false) =>
     tg("answerCallbackQuery", { callback_query_id: cb.id, text, show_alert: alert })
 
@@ -57,9 +60,47 @@ export async function POST(req: Request) {
         await answer("Paiement validé 💳 — à expédier")
         break
       }
-      case "gen":
-        await generateLabelForOrder(order, { answer }).catch(() => {})
+      case "gen": {
+        const senders = await listSenders()
+        if (senders.length === 0) {
+          await answer("Ajoute une adresse expéditeur dans le back-office (Expéditeurs).", true)
+          break
+        }
+        if (senders.length === 1) {
+          await generateLabelForOrder(order, { senderId: senders[0].id, answer }).catch(() => {})
+          break
+        }
+        // Plusieurs adresses → on propose le choix « Expédier depuis » sur le message.
+        if (order.telegramChatId && order.telegramMessageId) {
+          const rows = senders.map((s, i) => [
+            { text: `📍 ${s.city} — ${s.firstname} ${s.lastname}`, callback_data: `gens:${ref}:${i}` },
+          ])
+          rows.push([{ text: "↩️ Retour", callback_data: `back:${ref}` }])
+          await tg("editMessageReplyMarkup", {
+            chat_id: order.telegramChatId,
+            message_id: order.telegramMessageId,
+            reply_markup: { inline_keyboard: rows },
+          })
+        }
+        await answer("Choisis l'adresse d'expédition 📍")
         break
+      }
+      case "gens": {
+        const senders = await listSenders()
+        const sender = senders[Number(parts[2])]
+        if (!sender) {
+          await answer("Adresse introuvable, réessaie.", true)
+          await refreshOrderMessage(order)
+          break
+        }
+        await generateLabelForOrder(order, { senderId: sender.id, answer }).catch(() => {})
+        break
+      }
+      case "back": {
+        await refreshOrderMessage(order)
+        await answer()
+        break
+      }
       case "cancel":
         await cancelAndDelete(order, answer).catch(() => {})
         break
