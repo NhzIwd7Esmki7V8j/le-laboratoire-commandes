@@ -67,9 +67,9 @@ export async function submitOrder(data: OrderInput) {
       return { success: false, error: "La ville est invalide." }
     }
   } else {
-    // Point relais : seul le relais est requis (le widget Mondial Relay fournit déjà CP/ville).
+    // Point Retrait Colissimo : seul le relais est requis (le picker fournit déjà CP/ville).
     if (pointRelais.length < 3) {
-      return { success: false, error: "Le point relais est obligatoire." }
+      return { success: false, error: "Le Point Retrait Colissimo est obligatoire." }
     }
   }
 

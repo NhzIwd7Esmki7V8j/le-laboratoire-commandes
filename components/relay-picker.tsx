@@ -13,8 +13,8 @@ export type SelectedRelay = {
 
 type Point = { code: string; name: string; address: string; zipcode: string; city: string }
 
-// Sélecteur de point relais Mondial Relay — basé sur l'API Boxtal (via /api/relays).
-// Le client saisit son code postal, on liste les points relais autour, il en choisit un.
+// Sélecteur de Point Retrait Colissimo — basé sur l'API Boxtal (via /api/relays).
+// Le client saisit son code postal, on liste les Points Retrait autour, il en choisit un.
 export function RelayPicker({
   defaultPostCode,
   country = "FR",
@@ -96,7 +96,7 @@ export function RelayPicker({
 
       {searched && !loading && !error && points.length === 0 && (
         <p className="text-sm text-slate-500">
-          Aucun point relais trouvé pour ce code postal. Vérifie le code ou essaie une commune proche.
+          Aucun Point Retrait Colissimo trouvé pour ce code postal. Vérifie le code ou essaie une commune proche.
         </p>
       )}
 

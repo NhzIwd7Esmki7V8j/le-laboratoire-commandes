@@ -88,7 +88,7 @@ function fmtDate(ms: number): string {
   })
 }
 function addrSummary(o: Order): string {
-  if (o.deliveryMode === "relais") return o.pointRelais || `Point relais ${o.codePostal ?? ""} ${o.ville ?? ""}`.trim()
+  if (o.deliveryMode === "relais") return o.pointRelais || `Point Retrait ${o.codePostal ?? ""} ${o.ville ?? ""}`.trim()
   return [o.adresse, o.codePostal, o.ville].filter(Boolean).join(", ")
 }
 
@@ -202,6 +202,33 @@ export default function AdminPage() {
   const applyUpdated = (u: Order | null | undefined) => {
     if (!u) return
     setOrders((prev) => prev.map((o) => (o.ref === u.ref ? u : o)))
+  }
+
+  // Supprime TOUTES les commandes (avec confirm). Idéal pour vider après une session de test.
+  const wipeAll = async () => {
+    if (orders.length === 0) {
+      toast.info("Aucune commande à supprimer.")
+      return
+    }
+    if (!window.confirm(`Supprimer les ${orders.length} commande(s) ? Cette action est irréversible.`)) return
+    setBusy(true)
+    setBusyKey("wipe")
+    try {
+      const refs = orders.map((o) => o.ref)
+      const results = await Promise.allSettled(
+        refs.map((ref) => apiFetch(`/api/admin/orders/${ref}`, { method: "DELETE" })),
+      )
+      const ko = results.filter((r) => r.status === "rejected").length
+      const ok = results.length - ko
+      setOrders([])
+      setSelected(null)
+      if (ko === 0) toast.success(`${ok} commande(s) supprimée(s) 🗑️`)
+      else toast.error(`${ok} supprimée(s), ${ko} échec(s)`)
+      await load()
+    } finally {
+      setBusy(false)
+      setBusyKey(null)
+    }
   }
 
   // Annuler = SUPPRIMER la commande (Boxtal + Telegram + base) → disparaît de la liste.
@@ -360,6 +387,17 @@ export default function AdminPage() {
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">Expéditeurs</span>
           </button>
+          {view === "orders" && orders.length > 0 && (
+            <button
+              onClick={wipeAll}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-lg bg-rose-500/90 px-2 py-1.5 text-sm hover:bg-rose-600 disabled:opacity-60 sm:px-3"
+              title="Supprimer toutes les commandes"
+            >
+              {busyKey === "wipe" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              <span className="hidden sm:inline">Vider tout</span>
+            </button>
+          )}
           <button onClick={load} className="rounded-lg p-2 hover:bg-white/15" title="Rafraîchir">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
@@ -636,7 +674,7 @@ function DetailPanel({
             <a href={`tel:${order.telephone}`} className="text-violet-600">{order.telephone}</a>
           </Row>
           <Row icon={order.deliveryMode === "relais" ? <Package className="h-4 w-4" /> : <Home className="h-4 w-4" />}>
-            {order.deliveryMode === "relais" ? "Point relais" : "Livraison à domicile"}
+            {order.deliveryMode === "relais" ? "Colissimo · Point Retrait" : "Colissimo · Domicile"}
           </Row>
           <Row icon={<MapPin className="h-4 w-4" />}>{addrSummary(order)}</Row>
           {order.relayId && <p className="pl-6 text-xs text-slate-400">ID relais : {order.relayId}</p>}
@@ -698,6 +736,21 @@ function DetailPanel({
           )}
           {order.status === "label_generated" && (
             <ActionBtn onClick={onDownload} success icon={<FileText className="h-4 w-4" />}>Télécharger le PDF</ActionBtn>
+          )}
+          {/* Bouton supprimer toujours dispo pour paid/generating/label_generated
+              (pour pending et accepted, on a déjà Refuser/Annuler ci-dessus). */}
+          {(order.status === "paid" ||
+            order.status === "generating" ||
+            order.status === "label_generated") && (
+            <ActionBtn
+              onClick={onRemove}
+              disabled={busy}
+              loading={busyKey === "remove"}
+              danger
+              icon={<Trash2 className="h-4 w-4" />}
+            >
+              Supprimer la commande
+            </ActionBtn>
           )}
         </div>
       </div>

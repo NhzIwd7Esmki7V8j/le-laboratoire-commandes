@@ -48,6 +48,8 @@ export interface Order {
   telegramMessageId?: number
   // Telegram du CLIENT (rempli s'il démarre le bot via le lien « Recevoir mon suivi »)
   customerChatId?: number
+  // ID du message de suivi côté client (pour pouvoir l'éditer à chaque changement de statut)
+  customerMessageId?: number
 
   // Boxtal (renseigné une fois le bordereau généré)
   shipmentId?: string

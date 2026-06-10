@@ -2,7 +2,7 @@
 // (Mini App). Centralise la génération / l'annulation du bordereau pour éviter toute
 // divergence de logique entre les deux points d'entrée.
 import { updateOrder, deleteOrder, type Order } from "./orders"
-import { tg, refreshOrderMessage, escapeHtml } from "./telegram"
+import { tg, refreshOrderMessage, refreshCustomerMessage, escapeHtml } from "./telegram"
 import { generateLabel, cancelShipment } from "./boxtal"
 import { getSender, getDefaultSender } from "./senders"
 
@@ -28,20 +28,6 @@ async function sendLabelPdf(order: Order, pdf: Uint8Array): Promise<void> {
   await fetch(`https://api.telegram.org/bot${TOKEN}/sendDocument`, { method: "POST", body: fd })
 }
 
-// Envoie le numéro de suivi au CLIENT (s'il a démarré le bot via « Recevoir mon suivi »).
-async function notifyCustomerTracking(order: Order): Promise<void> {
-  if (!order.customerChatId) return
-  const text =
-    `📦 <b>Ta commande ${escapeHtml(order.ref)} est expédiée !</b>\n` +
-    `🔖 Suivi : <b>${escapeHtml(order.trackingNumber ?? "—")}</b>` +
-    (order.labelUrl ? `\n🔗 ${escapeHtml(order.labelUrl)}` : "")
-  // Envoi via le BOT DE SUIVI dédié (pas le bot admin).
-  await tg(
-    "sendMessage",
-    { chat_id: order.customerChatId, text, parse_mode: "HTML" },
-    process.env.TELEGRAM_TRACKING_BOT_TOKEN,
-  ).catch(() => {})
-}
 
 // Génère le bordereau Boxtal — idempotent + lock optimiste (chaque bordereau est facturé).
 export async function generateLabelForOrder(
@@ -67,7 +53,10 @@ export async function generateLabelForOrder(
 
   // Lock : passe en "generating" (retire les boutons) avant l'appel Boxtal.
   const working = await updateOrder(order.ref, { status: "generating" })
-  if (working) await refreshOrderMessage(working)
+  if (working) {
+    await refreshOrderMessage(working)
+    await refreshCustomerMessage(working)
+  }
   await answer?.("Génération du bordereau en cours…")
 
   try {
@@ -81,14 +70,17 @@ export async function generateLabelForOrder(
     if (done) {
       await sendLabelPdf(done, pdf)
       await refreshOrderMessage(done)
-      await notifyCustomerTracking(done)
+      await refreshCustomerMessage(done)
     }
     return done
   } catch (err) {
     console.log("[order-actions] génération bordereau échouée:", err)
     // Retour en "paid" (à expédier) pour permettre de réessayer.
     const reverted = await updateOrder(order.ref, { status: "paid" })
-    if (reverted) await refreshOrderMessage(reverted)
+    if (reverted) {
+      await refreshOrderMessage(reverted)
+      await refreshCustomerMessage(reverted)
+    }
     if (order.telegramChatId) {
       await tg("sendMessage", {
         chat_id: order.telegramChatId,
@@ -118,6 +110,9 @@ export async function cancelAndDelete(order: Order, answer?: Answer): Promise<vo
         message_id: order.telegramMessageId,
       })
     }
+    // Édite le message de suivi côté client en "Commande annulée" AVANT la suppression
+    // (après deleteOrder, on perd les IDs Telegram du client).
+    await refreshCustomerMessage({ ...order, status: "cancelled" })
     await deleteOrder(order.ref)
     await answer?.("Commande supprimée 🗑️", true)
   } catch (err) {

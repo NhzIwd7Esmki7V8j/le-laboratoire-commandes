@@ -1,7 +1,7 @@
 // GET    /api/admin/orders/:ref  — détails d'une commande
 // PATCH  /api/admin/orders/:ref  — mise à jour manuelle du statut (+ refresh message Telegram)
 import { getOrder, updateOrder, type OrderStatus } from "@/lib/orders"
-import { refreshOrderMessage } from "@/lib/telegram"
+import { refreshOrderMessage, refreshCustomerMessage } from "@/lib/telegram"
 import { cancelAndDelete } from "@/lib/order-actions"
 import { requireAdmin } from "@/lib/telegram-auth"
 
@@ -38,6 +38,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ ref: s
   const updated = await updateOrder(ref, { status })
   if (!updated) return new Response("Commande introuvable", { status: 404 })
   await refreshOrderMessage(updated)
+  await refreshCustomerMessage(updated)
   return Response.json({ order: updated })
 }
 

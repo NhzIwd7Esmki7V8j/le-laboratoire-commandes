@@ -69,7 +69,7 @@ function fmtDate(ms: number): string {
 
 function addrSummary(o: Order): string {
   if (o.deliveryMode === "relais") {
-    return o.pointRelais || `Point relais ${o.codePostal ?? ""} ${o.ville ?? ""}`.trim()
+    return o.pointRelais || `Point Retrait ${o.codePostal ?? ""} ${o.ville ?? ""}`.trim()
   }
   return [o.adresse, o.codePostal, o.ville].filter(Boolean).join(", ")
 }
@@ -436,7 +436,7 @@ function DetailView({
             <a href={`tel:${order.telephone}`} className="text-violet-600">{order.telephone}</a>
           </Row>
           <Row icon={order.deliveryMode === "relais" ? <Package className="h-4 w-4" /> : <Home className="h-4 w-4" />} hint={hint}>
-            {order.deliveryMode === "relais" ? "Point relais" : "Livraison à domicile"}
+            {order.deliveryMode === "relais" ? "Colissimo · Point Retrait" : "Colissimo · Domicile"}
           </Row>
           <Row icon={<MapPin className="h-4 w-4" />} hint={hint}>{addrSummary(order)}</Row>
           {order.relayId && <p className="pl-6 text-xs" style={{ color: hint }}>ID relais : {order.relayId}</p>}

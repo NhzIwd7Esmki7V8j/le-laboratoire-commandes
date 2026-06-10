@@ -101,7 +101,7 @@ export function OrderSection() {
       return "Ville invalide."
     }
     if (field === "pointRelais" && v.length < 3) {
-      return "Indiquez le point relais souhaité."
+      return "Indiquez le Point Retrait Colissimo souhaité."
     }
     if (field === "message" && v.length < 3) {
       return "Précisez votre commande (produits, quantités, prix)."
@@ -162,7 +162,7 @@ export function OrderSection() {
     setErrors((prev) => ({ ...prev, codePostal: undefined, ville: undefined }))
   }
 
-  // Auto-remplissage depuis le widget Mondial Relay
+  // Auto-remplissage depuis le picker Point Retrait Colissimo
   const handleRelaySelect = (relay: SelectedRelay) => {
     setForm((prev) => ({
       ...prev,
@@ -400,33 +400,42 @@ export function OrderSection() {
                   <Label className="flex items-center gap-1.5 text-slate-700">
                     <Package className="h-4 w-4 text-violet-500" />
                     Mode de livraison
+                    <span className="ml-1 rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-700">
+                      Colissimo
+                    </span>
                   </Label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
                       onClick={() => switchMode("domicile")}
                       aria-pressed={deliveryMode === "domicile"}
-                      className={`flex items-center justify-center gap-2 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
+                      className={`flex flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
                         deliveryMode === "domicile"
                           ? "border-violet-500 bg-violet-50 text-violet-700"
                           : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
                       }`}
                     >
-                      <Home className="h-4 w-4" />
-                      À domicile
+                      <span className="flex items-center gap-2">
+                        <Home className="h-4 w-4" />
+                        À domicile
+                      </span>
+                      <span className="text-[10px] font-normal opacity-70">Colissimo Domicile</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => switchMode("relais")}
                       aria-pressed={deliveryMode === "relais"}
-                      className={`flex items-center justify-center gap-2 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
+                      className={`flex flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
                         deliveryMode === "relais"
                           ? "border-violet-500 bg-violet-50 text-violet-700"
                           : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
                       }`}
                     >
-                      <Package className="h-4 w-4" />
-                      Point relais
+                      <span className="flex items-center gap-2">
+                        <Package className="h-4 w-4" />
+                        Point retrait
+                      </span>
+                      <span className="text-[10px] font-normal opacity-70">Colissimo Point Retrait</span>
                     </button>
                   </div>
                 </div>
@@ -504,7 +513,7 @@ export function OrderSection() {
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1.5 text-slate-700">
                       <Package className="h-4 w-4 text-violet-500" />
-                      Point relais
+                      Point Retrait Colissimo
                     </Label>
                     <RelayPicker
                       defaultPostCode={form.codePostal}
@@ -524,7 +533,7 @@ export function OrderSection() {
                     ) : (
                       <p className="text-xs text-slate-400">
                         Entrez votre code postal, cliquez sur « Rechercher », puis choisissez votre
-                        point relais dans la liste.
+                        Point Retrait Colissimo dans la liste.
                       </p>
                     )}
                   </div>

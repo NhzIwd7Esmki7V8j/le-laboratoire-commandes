@@ -3,7 +3,7 @@
 // (ex: "gen:CMD_123456"). La commande est rechargée depuis Redis et le message
 // est re-rendu EN ENTIER sur place (un seul canal, pas de copie vers un 2e canal).
 import { getOrder, updateOrder } from "@/lib/orders"
-import { tg, refreshOrderMessage } from "@/lib/telegram"
+import { tg, refreshOrderMessage, refreshCustomerMessage } from "@/lib/telegram"
 import { generateLabelForOrder, cancelAndDelete, type Answer } from "@/lib/order-actions"
 import { listSenders } from "@/lib/senders"
 
@@ -78,7 +78,10 @@ export async function POST(req: Request) {
     switch (action) {
       case "acc": {
         const updated = await updateOrder(ref, { status: "accepted" })
-        if (updated) await refreshOrderMessage(updated)
+        if (updated) {
+          await refreshOrderMessage(updated)
+          await refreshCustomerMessage(updated)
+        }
         await answer("Commande acceptée ✅")
         break
       }
@@ -88,7 +91,10 @@ export async function POST(req: Request) {
       }
       case "pay": {
         const updated = await updateOrder(ref, { status: "paid" })
-        if (updated) await refreshOrderMessage(updated)
+        if (updated) {
+          await refreshOrderMessage(updated)
+          await refreshCustomerMessage(updated)
+        }
         await answer("Paiement validé 💳 — à expédier")
         break
       }
