@@ -20,6 +20,7 @@ node_modules
 .wrangler/
 .dev.vars
 cloudflare-env.d.ts
+cf-secrets.json
 
 # Dev / scratch (non déployé)
 dev-telegram-poller.mjs
