@@ -7,7 +7,7 @@ import { tg, sendCustomerMessage } from "@/lib/telegram"
 
 const SECRET = process.env.TELEGRAM_TRACKING_WEBHOOK_SECRET
 const TRACKING_TOKEN = process.env.TELEGRAM_TRACKING_BOT_TOKEN
-const SITE_URL = process.env.SITE_URL ?? "https://formulaire-le-laboratoire.netlify.app"
+const SITE_URL = process.env.SITE_URL ?? "https://formulaire-le-laboratoire.le-laboratoire.workers.dev"
 
 // Format des références : CMD_ suivi de chiffres (l'action de soumission génère CMD_XXXXXX)
 const REF_REGEX = /\bCMD_\d{4,}\b/i

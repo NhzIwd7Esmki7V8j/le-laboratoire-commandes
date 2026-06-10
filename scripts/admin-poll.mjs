@@ -5,7 +5,7 @@
 // Pour le rebrancher après ta session de dev :
 //   curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
 //     -H "Content-Type: application/json" \
-//     -d '{"url":"https://formulaire-le-laboratoire.netlify.app/api/telegram","secret_token":"LaboSecret2026Marseille"}'
+//     -d '{"url":"https://formulaire-le-laboratoire.le-laboratoire.workers.dev/api/telegram","secret_token":"LaboSecret2026Marseille"}'
 //
 // Usage : NODE_TLS_REJECT_UNAUTHORIZED=0 node scripts/admin-poll.mjs
 import fs from "node:fs"
