@@ -221,18 +221,18 @@ export function OrderSection() {
     }`
 
   return (
-    <section id="commande" className="py-20 bg-gradient-to-br from-slate-50 to-white">
+    <section id="commande" className="py-6 md:py-20 bg-gradient-to-br from-slate-50 to-white">
       <div className="container mx-auto px-4 max-w-3xl">
         {/* Header */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 bg-violet-100 text-violet-700 px-4 py-2 rounded-full text-sm font-medium mb-4">
+        <div className="text-center mb-4 md:mb-10">
+          <div className="inline-flex items-center gap-2 bg-violet-100 text-violet-700 px-4 py-1.5 md:py-2 rounded-full text-sm font-medium mb-2 md:mb-4">
             <ShoppingBag className="h-4 w-4" />
             Passer commande
           </div>
-          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4 text-balance">
+          <h2 className="text-2xl md:text-4xl font-bold text-slate-900 mb-2 md:mb-4 text-balance">
             Formulaire de commande
           </h2>
-          <p className="text-lg text-slate-600 max-w-2xl mx-auto text-pretty">
+          <p className="hidden md:block text-lg text-slate-600 max-w-2xl mx-auto text-pretty">
             Remplissez ce formulaire pour passer votre commande. Vos informations sont
             transmises directement et en toute confidentialité à notre équipe sur Telegram,
             qui reviendra vers vous pour finaliser votre commande.
@@ -241,7 +241,7 @@ export function OrderSection() {
 
         <Card className="border-2 border-violet-200 shadow-xl overflow-hidden">
           {/* Bandeau */}
-          <div className="bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-4 flex items-center gap-3">
+          <div className="bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3 md:px-6 md:py-4 flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
               <ShoppingBag className="h-5 w-5 text-white" />
             </div>
@@ -251,7 +251,7 @@ export function OrderSection() {
             </div>
           </div>
 
-          <CardContent className="p-6 md:p-8">
+          <CardContent className="p-4 md:p-8">
             {status === "success" ? (
               <div className="text-center py-8">
                 <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-5">
@@ -313,8 +313,8 @@ export function OrderSection() {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} noValidate className="space-y-5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <form onSubmit={handleSubmit} noValidate className="space-y-3 md:space-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-5">
                   <div className="space-y-2">
                     <Label htmlFor="nom" className="flex items-center gap-1.5 text-slate-700">
                       <User className="h-4 w-4 text-violet-500" />
@@ -463,7 +463,7 @@ export function OrderSection() {
                         </p>
                       )}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-5">
                       <div className="space-y-2">
                         <Label htmlFor="codePostal" className="flex items-center gap-1.5 text-slate-700">
                           <MapPin className="h-4 w-4 text-violet-500" />
@@ -520,22 +520,18 @@ export function OrderSection() {
                       country={form.pays}
                       onSelect={handleRelaySelect}
                     />
-                    {form.pointRelais ? (
-                      <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 flex-shrink-0" />
-                        <span>{form.pointRelais}</span>
-                      </div>
-                    ) : errors.pointRelais ? (
-                      <p className="flex items-center gap-1 text-sm text-red-600">
-                        <AlertCircle className="h-3.5 w-3.5" />
-                        {errors.pointRelais}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-slate-400">
-                        Entrez votre code postal, cliquez sur « Rechercher », puis choisissez votre
-                        Point Retrait Colissimo dans la liste.
-                      </p>
-                    )}
+                    {!form.pointRelais &&
+                      (errors.pointRelais ? (
+                        <p className="flex items-center gap-1 text-sm text-red-600">
+                          <AlertCircle className="h-3.5 w-3.5" />
+                          {errors.pointRelais}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400">
+                          Entrez votre code postal, cliquez sur « Rechercher », puis choisissez votre
+                          Point Retrait Colissimo dans la liste.
+                        </p>
+                      ))}
                   </div>
                 )}
 
@@ -577,7 +573,7 @@ export function OrderSection() {
                     onChange={handleMessageChange}
                     onBlur={handleBlur("message")}
                     placeholder="Ex : BPC-157 5mg, x2, 90€"
-                    rows={4}
+                    rows={3}
                     maxLength={1000}
                     aria-invalid={!!errors.message}
                     className={`resize-none ${

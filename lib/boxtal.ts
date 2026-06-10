@@ -94,6 +94,8 @@ export interface RelayPoint {
   address: string
   zipcode: string
   city: string
+  latitude: number
+  longitude: number
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -324,6 +326,8 @@ export async function listRelayPoints(
       address: String(p?.address ?? ""),
       zipcode: String(p?.zipcode ?? ""),
       city: String(p?.city ?? ""),
+      latitude: num(p?.latitude),
+      longitude: num(p?.longitude),
     }))
     .filter((p) => p.code)
 }
