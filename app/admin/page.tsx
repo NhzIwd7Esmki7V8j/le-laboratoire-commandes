@@ -13,7 +13,6 @@ import {
   User,
   MapPin,
   Copy,
-  FileText,
   Loader2,
   XCircle,
   CheckCircle2,
@@ -90,6 +89,26 @@ function fmtDate(ms: number): string {
 function addrSummary(o: Order): string {
   if (o.deliveryMode === "relais") return o.pointRelais || `Point Retrait ${o.codePostal ?? ""} ${o.ville ?? ""}`.trim()
   return [o.adresse, o.codePostal, o.ville].filter(Boolean).join(", ")
+}
+
+// Page Colissimo en ligne (création + paiement d'une étiquette par carte, sans SIRET).
+const COLISSIMO_URL = "https://www.laposte.fr/colissimo-en-ligne"
+const laposteTrackingUrl = (tn: string) =>
+  `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(tn)}`
+
+// Bloc destinataire prêt à coller dans Colissimo en ligne.
+function colissimoInfos(o: Order): string {
+  const lines = [`${o.prenom} ${o.nom}`]
+  if (o.deliveryMode === "relais") {
+    if (o.pointRelais) lines.push(`Point Relais : ${o.pointRelais}`)
+    if (o.relayId) lines.push(`ID relais : ${o.relayId}`)
+  } else if (o.adresse) {
+    lines.push(o.adresse)
+  }
+  lines.push(`${o.codePostal ?? ""} ${o.ville ?? ""}`.trim())
+  lines.push(o.pays === "BE" ? "Belgique" : "France")
+  lines.push(`Tél : ${o.telephone}`)
+  return lines.filter(Boolean).join("\n")
 }
 
 export default function AdminPage() {
@@ -248,19 +267,20 @@ export default function AdminPage() {
     }
   }
 
-  // Génère le bordereau avec l'expéditeur choisi.
-  const generate = async (ref: string, senderId: string) => {
+  // Marque la commande expédiée avec le n° de suivi Colissimo saisi à la main.
+  // → le client reçoit automatiquement son suivi (refreshCustomerMessage côté API).
+  const ship = async (ref: string, trackingNumber: string) => {
     setBusy(true)
-    setBusyKey("generate")
+    setBusyKey("ship")
     try {
-      const { order } = await apiFetch(`/api/admin/orders/${ref}/generate`, {
-        method: "POST",
-        body: JSON.stringify({ senderId }),
+      const { order } = await apiFetch(`/api/admin/orders/${ref}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "label_generated", trackingNumber }),
       })
       applyUpdated(order)
-      toast.success("Bordereau généré ✅", { description: "PDF envoyé dans le canal Telegram." })
+      toast.success("Commande expédiée 🚀", { description: "Le suivi a été envoyé au client." })
     } catch (e) {
-      toast.error("Échec de la génération", { description: String(e).slice(0, 140) })
+      toast.error("Échec", { description: String(e).slice(0, 140) })
     } finally {
       setBusy(false)
       setBusyKey(null)
@@ -291,17 +311,6 @@ export default function AdminPage() {
     } finally {
       setBusy(false)
       setBusyKey(null)
-    }
-  }
-
-  const downloadPdf = async (ref: string) => {
-    try {
-      const res = await fetch(`/api/admin/orders/${ref}/label`, { credentials: "include" })
-      if (!res.ok) throw new Error(await res.text())
-      const url = URL.createObjectURL(await res.blob())
-      window.open(url, "_blank")
-    } catch {
-      toast.error("PDF indisponible", { description: "Le bordereau reste dans le canal Telegram." })
     }
   }
 
@@ -584,15 +593,13 @@ export default function AdminPage() {
         {current && (
           <DetailPanel
             order={current}
-            senders={senders}
             busy={busy}
             busyKey={busyKey}
             onClose={() => setSelected(null)}
             onAccept={() => setStatus(current.ref, "accepted", "Commande acceptée ✅", "accept")}
             onPaid={() => setStatus(current.ref, "paid", "Paiement validé 💳", "paid")}
-            onGenerate={(senderId) => generate(current.ref, senderId)}
+            onShip={(trackingNumber) => ship(current.ref, trackingNumber)}
             onRemove={() => remove(current.ref)}
-            onDownload={() => downloadPdf(current.ref)}
             onCopy={copy}
           />
         )}
@@ -605,25 +612,19 @@ export default function AdminPage() {
 
 // ── Panneau détail (droite) ──────────────────────────────────────────────────
 function DetailPanel({
-  order, senders, busy, busyKey, onClose, onAccept, onPaid, onGenerate, onRemove, onDownload, onCopy,
+  order, busy, busyKey, onClose, onAccept, onPaid, onShip, onRemove, onCopy,
 }: {
   order: Order
-  senders: Sender[]
   busy: boolean
   busyKey: string | null
   onClose: () => void
   onAccept: () => void
   onPaid: () => void
-  onGenerate: (senderId: string) => void
+  onShip: (trackingNumber: string) => void
   onRemove: () => void
-  onDownload: () => void
   onCopy: (t: string) => void
 }) {
-  const defaultSenderId = senders.find((s) => s.isDefault)?.id ?? senders[0]?.id ?? ""
-  const [genSender, setGenSender] = useState(defaultSenderId)
-  useEffect(() => {
-    if (!senders.find((s) => s.id === genSender)) setGenSender(defaultSenderId)
-  }, [senders, genSender, defaultSenderId])
+  const [tracking, setTracking] = useState("")
   const STEPS: OrderStatus[] = ["pending", "accepted", "paid", "generating", "label_generated"]
   const idx = STEPS.indexOf(order.status)
   const timeline = [
@@ -704,38 +705,53 @@ function DetailPanel({
               <ActionBtn onClick={onRemove} disabled={busy} loading={busyKey === "remove"} danger icon={<Trash2 className="h-4 w-4" />}>Annuler la commande</ActionBtn>
             </>
           )}
-          {order.status === "paid" &&
-            (senders.length === 0 ? (
-              <p className="rounded-lg bg-amber-50 p-3 text-center text-sm text-amber-700">
-                Ajoute d'abord une adresse expéditeur (bouton « Expéditeurs » en haut).
-              </p>
-            ) : (
-              <>
-                <label className="block text-xs font-medium text-slate-500">Expédier depuis</label>
-                <select
-                  value={genSender}
-                  onChange={(e) => setGenSender(e.target.value)}
-                  className="mb-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          {order.status === "paid" && (
+            <div className="space-y-2.5">
+              {/* Étape 1 : copier les infos du destinataire */}
+              <ActionBtn onClick={() => onCopy(colissimoInfos(order))} icon={<Copy className="h-4 w-4" />}>
+                Copier les infos destinataire
+              </ActionBtn>
+              {/* Étape 2 : créer + payer l'étiquette sur Colissimo en ligne (carte, sans SIRET) */}
+              <a
+                href={COLISSIMO_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
+              >
+                <Package className="h-4 w-4" /> Ouvrir Colissimo en ligne ↗
+              </a>
+              {/* Étape 3 : coller le n° de suivi obtenu → expédiée + suivi envoyé au client */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                <label className="mb-1 block text-xs font-medium text-slate-500">
+                  N° de suivi Colissimo
+                </label>
+                <input
+                  value={tracking}
+                  onChange={(e) => setTracking(e.target.value)}
+                  placeholder="ex. 6A01234567890"
+                  className="mb-2 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-200"
+                />
+                <ActionBtn
+                  onClick={() => onShip(tracking.trim())}
+                  disabled={busy || tracking.trim().length < 6}
+                  loading={busyKey === "ship"}
+                  primary
+                  icon={<CheckCircle2 className="h-4 w-4" />}
                 >
-                  {senders.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.city} — {s.firstname} {s.lastname}
-                      {s.isDefault ? " (défaut)" : ""}
-                    </option>
-                  ))}
-                </select>
-                <ActionBtn onClick={() => onGenerate(genSender)} disabled={busy} loading={busyKey === "generate"} primary icon={<Beaker className="h-4 w-4" />}>
-                  Générer le bordereau
+                  Marquer expédiée
                 </ActionBtn>
-              </>
-            ))}
-          {order.status === "generating" && (
-            <div className="flex items-center justify-center gap-2 rounded-lg bg-sky-50 py-3 text-sm font-medium text-sky-700">
-              <Loader2 className="h-4 w-4 animate-spin" /> Génération en cours…
+              </div>
             </div>
           )}
-          {order.status === "label_generated" && (
-            <ActionBtn onClick={onDownload} success icon={<FileText className="h-4 w-4" />}>Télécharger le PDF</ActionBtn>
+          {order.status === "label_generated" && order.trackingNumber && (
+            <a
+              href={laposteTrackingUrl(order.trackingNumber)}
+              target="_blank"
+              rel="noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700"
+            >
+              <Package className="h-4 w-4" /> Suivre sur laposte.fr ↗
+            </a>
           )}
           {/* Bouton supprimer toujours dispo pour paid/generating/label_generated
               (pour pending et accepted, on a déjà Refuser/Annuler ci-dessus). */}

@@ -135,7 +135,7 @@ export function OrderSection() {
   const requiredFields = (): Field[] =>
     deliveryMode === "domicile"
       ? ["nom", "prenom", "telephone", "adresse", "codePostal", "ville", "message"]
-      : ["nom", "prenom", "telephone", "pointRelais", "message"]
+      : ["nom", "prenom", "telephone", "adresse", "codePostal", "ville", "pointRelais", "message"]
 
   const validateAll = (): boolean => {
     const newErrors: Partial<Record<Field, string>> = {}
@@ -440,100 +440,108 @@ export function OrderSection() {
                   </div>
                 </div>
 
-                {deliveryMode === "domicile" ? (
-                  <div className="space-y-5">
+                {/* Adresse du client — demandée dans les DEUX modes (domicile ET relais),
+                    car Colissimo « point de retrait » exige aussi l'adresse du destinataire. */}
+                <div className="space-y-5">
+                  <div className="space-y-2">
+                    <Label htmlFor="adresse" className="flex items-center gap-1.5 text-slate-700">
+                      <MapPin className="h-4 w-4 text-violet-500" />
+                      Adresse (n° et rue)
+                    </Label>
+                    {deliveryMode === "relais" && (
+                      <p className="text-xs text-slate-500">
+                        Votre adresse personnelle (nécessaire pour l&apos;étiquette, même en point retrait).
+                      </p>
+                    )}
+                    <Input
+                      id="adresse"
+                      value={form.adresse}
+                      onChange={handleChange("adresse")}
+                      onBlur={handleBlur("adresse")}
+                      placeholder="Ex : 12 rue des Lilas"
+                      aria-invalid={!!errors.adresse}
+                      className={inputClass("adresse")}
+                    />
+                    {errors.adresse && (
+                      <p className="flex items-center gap-1 text-sm text-red-600">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        {errors.adresse}
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-5">
                     <div className="space-y-2">
-                      <Label htmlFor="adresse" className="flex items-center gap-1.5 text-slate-700">
+                      <Label htmlFor="codePostal" className="flex items-center gap-1.5 text-slate-700">
                         <MapPin className="h-4 w-4 text-violet-500" />
-                        Adresse (n° et rue)
+                        Code postal
                       </Label>
                       <Input
-                        id="adresse"
-                        value={form.adresse}
-                        onChange={handleChange("adresse")}
-                        onBlur={handleBlur("adresse")}
-                        placeholder="Ex : 12 rue des Lilas"
-                        aria-invalid={!!errors.adresse}
-                        className={inputClass("adresse")}
+                        id="codePostal"
+                        inputMode="numeric"
+                        value={form.codePostal}
+                        onChange={handleChange("codePostal")}
+                        onBlur={handleBlur("codePostal")}
+                        placeholder="Ex : 75011"
+                        aria-invalid={!!errors.codePostal}
+                        className={inputClass("codePostal")}
                       />
-                      {errors.adresse && (
+                      {errors.codePostal && (
                         <p className="flex items-center gap-1 text-sm text-red-600">
                           <AlertCircle className="h-3.5 w-3.5" />
-                          {errors.adresse}
+                          {errors.codePostal}
                         </p>
                       )}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-5">
-                      <div className="space-y-2">
-                        <Label htmlFor="codePostal" className="flex items-center gap-1.5 text-slate-700">
-                          <MapPin className="h-4 w-4 text-violet-500" />
-                          Code postal
-                        </Label>
-                        <Input
-                          id="codePostal"
-                          inputMode="numeric"
-                          value={form.codePostal}
-                          onChange={handleChange("codePostal")}
-                          onBlur={handleBlur("codePostal")}
-                          placeholder="Ex : 75011"
-                          aria-invalid={!!errors.codePostal}
-                          className={inputClass("codePostal")}
-                        />
-                        {errors.codePostal && (
-                          <p className="flex items-center gap-1 text-sm text-red-600">
-                            <AlertCircle className="h-3.5 w-3.5" />
-                            {errors.codePostal}
-                          </p>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="ville" className="flex items-center gap-1.5 text-slate-700">
-                          <MapPin className="h-4 w-4 text-violet-500" />
-                          Ville
-                        </Label>
-                        <Input
-                          id="ville"
-                          value={form.ville}
-                          onChange={handleChange("ville")}
-                          onBlur={handleBlur("ville")}
-                          placeholder="Ex : Paris"
-                          aria-invalid={!!errors.ville}
-                          className={inputClass("ville")}
-                        />
-                        {errors.ville && (
-                          <p className="flex items-center gap-1 text-sm text-red-600">
-                            <AlertCircle className="h-3.5 w-3.5" />
-                            {errors.ville}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-1.5 text-slate-700">
-                      <Package className="h-4 w-4 text-violet-500" />
-                      Point Retrait Colissimo
-                    </Label>
-                    <RelayPicker
-                      defaultPostCode={form.codePostal}
-                      country={form.pays}
-                      onSelect={handleRelaySelect}
-                    />
-                    {!form.pointRelais &&
-                      (errors.pointRelais ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="ville" className="flex items-center gap-1.5 text-slate-700">
+                        <MapPin className="h-4 w-4 text-violet-500" />
+                        Ville
+                      </Label>
+                      <Input
+                        id="ville"
+                        value={form.ville}
+                        onChange={handleChange("ville")}
+                        onBlur={handleBlur("ville")}
+                        placeholder="Ex : Paris"
+                        aria-invalid={!!errors.ville}
+                        className={inputClass("ville")}
+                      />
+                      {errors.ville && (
                         <p className="flex items-center gap-1 text-sm text-red-600">
                           <AlertCircle className="h-3.5 w-3.5" />
-                          {errors.pointRelais}
+                          {errors.ville}
                         </p>
-                      ) : (
-                        <p className="text-xs text-slate-400">
-                          Entrez votre code postal, cliquez sur « Rechercher », puis choisissez votre
-                          Point Retrait Colissimo dans la liste.
-                        </p>
-                      ))}
+                      )}
+                    </div>
                   </div>
-                )}
+
+                  {/* Sélecteur de point relais — uniquement en mode « point retrait » */}
+                  {deliveryMode === "relais" && (
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1.5 text-slate-700">
+                        <Package className="h-4 w-4 text-violet-500" />
+                        Point Retrait Colissimo
+                      </Label>
+                      <RelayPicker
+                        defaultPostCode={form.codePostal}
+                        country={form.pays}
+                        onSelect={handleRelaySelect}
+                      />
+                      {!form.pointRelais &&
+                        (errors.pointRelais ? (
+                          <p className="flex items-center gap-1 text-sm text-red-600">
+                            <AlertCircle className="h-3.5 w-3.5" />
+                            {errors.pointRelais}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-slate-400">
+                            Entrez votre code postal, cliquez sur « Rechercher », puis choisissez votre
+                            Point Retrait Colissimo dans la liste.
+                          </p>
+                        ))}
+                    </div>
+                  )}
+                </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="telephone" className="flex items-center gap-1.5 text-slate-700">

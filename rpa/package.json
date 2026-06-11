@@ -1,0 +1,13 @@
+{
+  "name": "labo-rpa-colissimo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Robot local d'aide à la création d'étiquettes Colissimo (sans SIRET). Pilote Edge via Playwright.",
+  "scripts": {
+    "colissimo": "node colissimo.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}

@@ -35,7 +35,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ ref: s
     return new Response("Statut invalide", { status: 400 })
   }
 
-  const updated = await updateOrder(ref, { status })
+  // N° de suivi optionnel (saisi à la main après création de l'étiquette Colissimo).
+  const patch: { status: OrderStatus; trackingNumber?: string } = { status }
+  if (typeof body?.trackingNumber === "string") {
+    const tn = body.trackingNumber.trim()
+    if (tn) patch.trackingNumber = tn
+  }
+
+  const updated = await updateOrder(ref, patch)
   if (!updated) return new Response("Commande introuvable", { status: 404 })
   await refreshOrderMessage(updated)
   await refreshCustomerMessage(updated)

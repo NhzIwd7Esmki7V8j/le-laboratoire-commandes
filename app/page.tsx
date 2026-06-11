@@ -1,6 +1,6 @@
 import { OrderSection } from "@/components/order-section"
 import { ContactModal } from "@/components/contact-modal"
-import { Send, Lock } from "lucide-react"
+import { Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export default function Home() {
@@ -70,13 +70,6 @@ export default function Home() {
                 <p className="text-xs text-slate-500">
                   © {new Date().getFullYear()} Le Laboratoire. Tous droits réservés.
                 </p>
-                <a
-                  href="/admin"
-                  className="inline-flex items-center gap-1 text-xs text-slate-600 transition-colors hover:text-violet-400"
-                >
-                  <Lock className="h-3 w-3" />
-                  Admin
-                </a>
               </div>
               <p className="text-[10px] text-slate-600 text-center md:text-right max-w-lg leading-relaxed">
                 Produits destinés uniquement à la recherche en laboratoire. Non destinés à l&apos;usage humain ou animal

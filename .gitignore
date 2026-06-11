@@ -25,3 +25,9 @@ cf-secrets.json
 # Dev / scratch (non déployé)
 dev-telegram-poller.mjs
 image-explication/
+
+# RPA Colissimo : profils de navigateur (cookies/login) + captures/artefacts de test
+rpa/.userdata/
+rpa/.inspect/
+rpa/.inspect2/
+rpa/*.png
