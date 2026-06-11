@@ -60,6 +60,87 @@ const ctx = await chromium.launchPersistentContext(join(__dirname, ".userdata"),
 ctx.setDefaultTimeout(15000)
 const page = ctx.pages()[0] ?? (await ctx.newPage())
 
+// ── Capture post-paiement : l'étiquette téléchargée est transmise à l'app, qui la
+// poste dans le canal (avec les infos en légende) + marque la commande expédiée. ──
+const API = (env.APP_URL || "http://localhost:3000").replace(/\/+$/, "") + "/api/rpa/shipped"
+const KEY = env.RPA_API_KEY
+
+// Extrait le n° de suivi Colissimo du PDF (imprimé sous le code-barres).
+async function extractTracking(filePath) {
+  try {
+    const pdf = (await import("pdf-parse")).default
+    const data = await pdf(readFileSync(filePath))
+    const text = data.text || ""
+    // N° de suivi Colissimo = 1 chiffre + 1 lettre + 11 chiffres, imprimé AVEC des espaces
+    // (ex. « 5Y 0058310049 4 »). On autorise les espaces entre les chiffres et on nettoie.
+    // La version humaine apparaît avant les codes-barres → on prend la 1re occurrence.
+    const matches = (text.match(/\d[A-Z](?:\s*\d){11}/g) || []).map((m) => m.replace(/\s+/g, ""))
+    const candidates = [...new Set(matches)]
+    console.log("🔢 Candidats n° suivi: " + (candidates.length ? candidates.join(", ") : "(aucun — vérifier le format)"))
+    return candidates[0] || ""
+  } catch (e) {
+    console.log("⚠️ Parsing PDF échoué: " + (e?.message ?? e))
+    return ""
+  }
+}
+
+// Envoie le PDF + n° de suivi à l'app (multipart). L'app poste l'étiquette dans le
+// canal avec les infos en légende, marque la commande expédiée et notifie le client.
+async function uploadLabel(filePath, trackingNumber) {
+  if (!KEY) {
+    console.log(`⚠️ RPA_API_KEY absent de .env.local → étiquette NON transmise à l'app (suivi capté: ${trackingNumber || "?"}).`)
+    return
+  }
+  try {
+    const fd = new FormData()
+    fd.append("ref", order.ref)
+    fd.append("trackingNumber", trackingNumber || "")
+    fd.append("file", new Blob([readFileSync(filePath)], { type: "application/pdf" }), `bordereau-${order.ref}.pdf`)
+    const res = await fetch(API, { method: "POST", headers: { "x-robot-key": KEY }, body: fd })
+    const j = await res.json().catch(() => ({}))
+    console.log(res.ok ? `✅ Étiquette postée dans Telegram + commande EXPÉDIÉE (suivi: ${j.trackingNumber ?? (trackingNumber || "?")}) — client notifié.` : `⚠️ /api/rpa/shipped a répondu ${res.status}`)
+  } catch (e) {
+    console.log(`⚠️ Appel app échoué (${API}): ${e?.message ?? e} — l'app est-elle lancée ? (APP_URL)`)
+  }
+}
+
+// Change le statut de la commande via l'app (ex. revert "paid" si fermé sans payer).
+async function setStatus(status) {
+  if (!KEY) return
+  try {
+    await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-robot-key": KEY },
+      body: JSON.stringify({ ref: order.ref, status }),
+    })
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Traite l'étiquette téléchargée : extraction du suivi + envoi à l'app.
+let labelHandled = false
+async function handleLabel(filePath) {
+  if (labelHandled) return
+  labelHandled = true
+  const tn = await extractTracking(filePath)
+  await uploadLabel(filePath, tn)
+}
+
+page.on("download", async (d) => {
+  try {
+    const p = join(__dirname, `bordereau-${order.ref}.pdf`)
+    await d.saveAs(p)
+    console.log("📄 Étiquette téléchargée: " + p)
+    await handleLabel(p)
+  } catch (e) {
+    console.log("⚠️ Téléchargement étiquette: " + (e?.message ?? e))
+  }
+})
+ctx.on("page", (pg) => pg.on("download", async (d) => {
+  try { const p = join(__dirname, `bordereau-${order.ref}.pdf`); await d.saveAs(p); console.log("📄 Étiquette (onglet): " + p); await handleLabel(p) } catch {}
+}))
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const log = (m) => console.log("  " + m)
 const txt = (t) => page.locator(`text=${t}`).first()
@@ -195,7 +276,10 @@ try {
       await maybe("#submit-button", { timeout: 5000 })
       await page.waitForTimeout(5000)
     }
-    console.log("\n✅ Parcours rempli. Vérifie le récap, va au PAIEMENT et valide ta carte (3-D Secure sur ton tél).")
+    // Amène jusqu'à la page de PAIEMENT (saisie carte) : valide le panier.
+    await maybe('button:has-text("Valider mon panier")', { timeout: 8000 })
+    await page.waitForTimeout(4000)
+    console.log("\n✅ Parcours rempli + panier validé. Tu es sur la page de PAIEMENT : saisis ta carte (+ 3-D Secure).")
   }
   console.log("   Ferme la fenêtre Edge quand tu as fini.\n")
 } catch (e) {
@@ -208,5 +292,12 @@ if (TEST) {
   await ctx.close().catch(() => {})
   process.exit(0)
 }
+// La fenêtre reste ouverte jusqu'à ce que l'utilisateur la ferme.
 await new Promise((resolve) => ctx.on("close", resolve))
+// Fermée sans avoir traité l'étiquette (pas payé / abandon) → on remet la commande
+// en "paid" pour que le bouton « Générer le bordereau » réapparaisse dans Telegram.
+if (!labelHandled) {
+  console.log("ℹ️ Fenêtre fermée sans étiquette → commande remise en « à expédier ».")
+  await setStatus("paid")
+}
 process.exit(0)

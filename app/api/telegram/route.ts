@@ -3,9 +3,9 @@
 // (ex: "gen:CMD_123456"). La commande est rechargée depuis Redis et le message
 // est re-rendu EN ENTIER sur place (un seul canal, pas de copie vers un 2e canal).
 import { getOrder, updateOrder } from "@/lib/orders"
+import { redis } from "@/lib/redis"
 import { tg, refreshOrderMessage, refreshCustomerMessage } from "@/lib/telegram"
-import { generateLabelForOrder, cancelAndDelete, type Answer } from "@/lib/order-actions"
-import { listSenders } from "@/lib/senders"
+import { cancelAndDelete, type Answer } from "@/lib/order-actions"
 
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET
 
@@ -99,44 +99,19 @@ export async function POST(req: Request) {
         break
       }
       case "gen": {
-        const senders = await listSenders()
-        if (senders.length === 0) {
-          await answer("Ajoute une adresse expéditeur dans le back-office (Expéditeurs).", true)
+        // Met la commande « en génération » + la pousse dans la file que le VEILLEUR
+        // local surveille → il lancera le robot Colissimo sur la machine.
+        if (order.status === "generating") {
+          await answer("Génération déjà demandée…", true)
           break
         }
-        if (senders.length === 1) {
-          await generateLabelForOrder(order, { senderId: senders[0].id, answer }).catch(() => {})
-          break
+        const updated = await updateOrder(ref, { status: "generating" })
+        await redis.rpush("robot:queue", ref)
+        if (updated) {
+          await refreshOrderMessage(updated)
+          await refreshCustomerMessage(updated)
         }
-        // Plusieurs adresses → on propose le choix « Expédier depuis » sur le message.
-        if (order.telegramChatId && order.telegramMessageId) {
-          const rows = senders.map((s, i) => [
-            { text: `📍 ${s.city} — ${s.firstname} ${s.lastname}`, callback_data: `gens:${ref}:${i}` },
-          ])
-          rows.push([{ text: "↩️ Retour", callback_data: `back:${ref}` }])
-          await tg("editMessageReplyMarkup", {
-            chat_id: order.telegramChatId,
-            message_id: order.telegramMessageId,
-            reply_markup: { inline_keyboard: rows },
-          })
-        }
-        await answer("Choisis l'adresse d'expédition 📍")
-        break
-      }
-      case "gens": {
-        const senders = await listSenders()
-        const sender = senders[Number(parts[2])]
-        if (!sender) {
-          await answer("Adresse introuvable, réessaie.", true)
-          await refreshOrderMessage(order)
-          break
-        }
-        await generateLabelForOrder(order, { senderId: sender.id, answer }).catch(() => {})
-        break
-      }
-      case "back": {
-        await refreshOrderMessage(order)
-        await answer()
+        await answer("Génération du bordereau lancée ⚗️ — le robot va s'ouvrir sur ta machine.")
         break
       }
       case "cancel":

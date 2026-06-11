@@ -7,7 +7,6 @@ import type { Order } from "./orders"
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const TRACKING_TOKEN = process.env.TELEGRAM_TRACKING_BOT_TOKEN
-const MINI_APP_URL = process.env.MINI_APP_URL
 
 // URL de suivi La Poste / Colissimo (pour le bouton final côté client)
 function laPosteTrackingUrl(trackingNumber: string): string {
@@ -53,6 +52,35 @@ export async function refreshOrderMessage(order: Order): Promise<void> {
     parse_mode: "HTML",
     reply_markup: orderButtons(order),
   })
+}
+
+// Envoie le PDF du bordereau dans le canal AVEC les infos de la commande en légende
+// (= un seul message qui remplace l'ancien message texte). Renvoie l'ID du nouveau message.
+export async function sendLabelToChannel(
+  order: Order,
+  pdf: Uint8Array | ArrayBuffer,
+  filename = `bordereau-${order.ref}.pdf`,
+): Promise<number | null> {
+  if (!TOKEN || !order.telegramChatId) return null
+  try {
+    const fd = new FormData()
+    fd.append("chat_id", String(order.telegramChatId))
+    fd.append("caption", renderOrderMessage(order))
+    fd.append("parse_mode", "HTML")
+    fd.append("document", new Blob([pdf], { type: "application/pdf" }), filename)
+    const res = await fetch(`https://api.telegram.org/bot${TOKEN}/sendDocument`, { method: "POST", body: fd })
+    const j = (await res.json()) as { ok?: boolean; result?: { message_id?: number } }
+    return j?.ok && j.result?.message_id ? j.result.message_id : null
+  } catch {
+    return null
+  }
+}
+
+// Supprime un message du canal (best-effort).
+export async function deleteChannelMessage(order: Order, messageId?: number): Promise<void> {
+  const id = messageId ?? order.telegramMessageId
+  if (!order.telegramChatId || !id) return
+  await tg("deleteMessage", { chat_id: order.telegramChatId, message_id: id }).catch(() => {})
 }
 
 const FLAG: Record<string, string> = { FR: "🇫🇷", BE: "🇧🇪" }
@@ -243,6 +271,5 @@ export function orderButtons(order: Order): { inline_keyboard: InlineButton[][] 
     case "cancelled":
       break
   }
-  if (MINI_APP_URL) rows.push([{ text: "📊 Dashboard", url: MINI_APP_URL }])
   return { inline_keyboard: rows }
 }
