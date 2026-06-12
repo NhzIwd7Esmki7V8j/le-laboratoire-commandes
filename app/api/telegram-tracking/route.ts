@@ -23,6 +23,13 @@ const ORDER_BUTTON: InlineKb = {
 async function linkAndSend(chatId: number, ref: string): Promise<boolean> {
   const order = await getOrder(ref.toUpperCase())
   if (!order) return false
+  // AVANT de parler de la commande : un message avec le lien du formulaire/site (pour
+  // commander à nouveau facilement). Ensuite seulement, le suivi de la commande.
+  await send(
+    chatId,
+    `🧪 <b>Le Laboratoire</b>\n\nNotre formulaire de commande est toujours dispo ici 👇`,
+    ORDER_BUTTON,
+  )
   // Lie le chat client puis envoie le message de statut courant. refreshCustomerMessage gère
   // aussi le re-clic (supprime l'ancien message avant d'en renvoyer un) → chat propre.
   const updated = await updateOrder(order.ref, { customerChatId: chatId })
