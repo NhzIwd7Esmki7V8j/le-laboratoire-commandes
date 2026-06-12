@@ -95,6 +95,29 @@ async function sendDayStats(chatId: number): Promise<void> {
   })
 }
 
+// ℹ️ /info — mode d'emploi affiché dans le canal admin.
+async function sendInfo(chatId: number): Promise<void> {
+  await tg("sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text:
+      `ℹ️ <b>Comment ça marche</b>\n` +
+      `━━━━━━━━━━\n` +
+      `<b>Pour chaque commande qui arrive :</b>\n` +
+      `1️⃣ <b>Accepter</b> (ou Refuser)\n` +
+      `2️⃣ <b>Payé !</b> quand le client a réglé\n\n` +
+      `<b>Pour expédier (le soir, tout d'un coup) :</b>\n` +
+      `3️⃣ Tape <b>/colis</b> → ça affiche le lot + le total → <b>tu confirmes le paiement</b> avec le bouton ✅\n` +
+      `→ le robot paie tout en une fois, range les bordereaux sur le Drive et envoie le numéro de suivi à chaque client.\n\n` +
+      `⚠️ Le PC doit être <b>allumé</b> avec la fenêtre <b>Veilleur</b> ouverte (sinon ça attend, rien n'est perdu).\n` +
+      `━━━━━━━━━━\n` +
+      `<b>Les commandes du canal :</b>\n` +
+      `🛒 <b>/colis</b> — paie et expédie TOUTES les commandes payées en une seule fois (avec confirmation).\n` +
+      `📊 <b>/aujourdhui</b> — récap du jour : reçues, expédiées, et ce qu'il reste à expédier.\n` +
+      `ℹ️ <b>/info</b> — ce message.`,
+  })
+}
+
 // Le client démarre le bot avec "/start CMD_xxx" → on lie son chat à la commande
 // pour pouvoir lui envoyer son suivi automatiquement à l'expédition.
 async function handleStart(msg: any): Promise<void> {
@@ -153,6 +176,12 @@ export async function POST(req: Request) {
   // 📊 /aujourdhui — récap de la journée.
   if (msgText.startsWith("/aujourd")) {
     if (fromAdmin) await sendDayStats(msg.chat.id).catch(() => {})
+    return new Response("ok", { status: 200 })
+  }
+
+  // ℹ️ /info — mode d'emploi.
+  if (msgText.startsWith("/info")) {
+    if (fromAdmin) await sendInfo(msg.chat.id).catch(() => {})
     return new Response("ok", { status: 200 })
   }
 
