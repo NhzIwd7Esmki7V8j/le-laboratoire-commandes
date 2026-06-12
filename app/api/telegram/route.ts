@@ -10,7 +10,36 @@ import { cancelAndDelete, type Answer } from "@/lib/order-actions"
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET
 const ADMIN_CHAT = process.env.TELEGRAM_CHAT_ID
 
-// 📦 /colis — expédie TOUTES les commandes payées en une fois :
+// Prix estimé d'un bordereau (FR domicile ~7,59 / FR relais ~6,89 / Belgique ~14,99).
+function estLabelEur(o: { pays?: string; deliveryMode?: string }): number {
+  if (o.pays === "BE") return 14.99
+  return o.deliveryMode === "relais" ? 6.89 : 7.59
+}
+
+// /colis → demande CONFIRMATION (nombre + total estimé) avant de payer, pour qu'un simple
+// clic ne déclenche jamais un gros paiement par accident.
+async function askDayBatchConfirm(chatId: number): Promise<void> {
+  const paid = await listOrders("paid")
+  if (!paid.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "📭 Aucune commande payée à expédier pour le moment." })
+    return
+  }
+  const total = paid.reduce((s, o) => s + estLabelEur(o), 0)
+  await tg("sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text:
+      `🛒 <b>Expédition du jour</b>\n\n` +
+      `📦 <b>${paid.length}</b> commande(s) prête(s)\n` +
+      `💶 Total estimé : <b>~${total.toFixed(2)} €</b>\n\n` +
+      `⚠️ Confirme pour PAYER et expédier tout le lot en une fois.`,
+    reply_markup: {
+      inline_keyboard: [[{ text: `✅ Payer ${paid.length} colis (~${total.toFixed(2)} €)`, callback_data: "dobatch:ALL" }]],
+    },
+  })
+}
+
+// 📦 Expédie TOUTES les commandes payées en une fois (après confirmation) :
 // chaque colis est ajouté au panier (robot), puis tout est payé en un seul paiement,
 // déposé sur le Drive, et le numéro de suivi est envoyé à chaque client.
 async function handleDayBatch(chatId: number): Promise<void> {
@@ -81,7 +110,7 @@ export async function POST(req: Request) {
   // (TELEGRAM_CHAT_ID). Ignorée partout ailleurs (message privé, autre groupe…).
   if (msgText.startsWith("/colis")) {
     if (ADMIN_CHAT && String(msg?.chat?.id) === ADMIN_CHAT) {
-      await handleDayBatch(msg.chat.id).catch(() => {})
+      await askDayBatchConfirm(msg.chat.id).catch(() => {})
     }
     return new Response("ok", { status: 200 })
   }
@@ -100,6 +129,18 @@ export async function POST(req: Request) {
   const ref = parts[1]
   const answer: Answer = (text, alert = false) =>
     tg("answerCallbackQuery", { callback_query_id: cb.id, text, show_alert: alert })
+
+  // ✅ Confirmation de l'expédition du jour (bouton de /colis) — action GLOBALE, réservée au
+  // canal admin → traitée avant le chargement d'une commande.
+  if (action === "dobatch") {
+    if (ADMIN_CHAT && String(cb.message?.chat?.id) === ADMIN_CHAT) {
+      await handleDayBatch(cb.message.chat.id).catch(() => {})
+      await answer("Expédition lancée 📦")
+    } else {
+      await answer()
+    }
+    return new Response("ok", { status: 200 })
+  }
 
   if (!ref) {
     await answer()
