@@ -7,6 +7,7 @@ import { chromium } from "playwright"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
+import { uploadLabelToDrive } from "./drive.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -278,7 +279,10 @@ try {
     }
     const posted = await postShipped(order, pdfPath, tn)
     console.log(posted ? `  ✓ ${order.ref} — expédiée (suivi: ${tn || "?"})` : `  ⚠️ ${order.ref} — /shipped a échoué`)
-    if (posted) okCount++
+    if (posted) {
+      okCount++
+      await uploadLabelToDrive(order, pdfPath, tn) // ☁️ dépôt Drive + ligne Sheet (best-effort)
+    }
   }
 
   console.log(`\n✅ Paiement groupé terminé : ${okCount}/${orders.length} étiquettes postées.`)

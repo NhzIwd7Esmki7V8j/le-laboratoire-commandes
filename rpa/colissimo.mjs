@@ -15,6 +15,7 @@ import { chromium } from "playwright"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
+import { uploadLabelToDrive } from "./drive.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -217,6 +218,7 @@ async function handleLabel(filePath) {
   }
   const tn = await extractTracking(filePath)
   await uploadLabel(filePath, tn)
+  await uploadLabelToDrive(order, filePath, tn) // ☁️ dépôt Drive + ligne Sheet (best-effort)
 }
 
 page.on("download", async (d) => {

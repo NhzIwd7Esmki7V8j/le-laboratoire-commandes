@@ -27,6 +27,11 @@ cf-secrets.json
 dev-telegram-poller.mjs
 image-explication/
 
+# Google Drive/Sheets : identifiants OAuth + jeton (SECRETS, jamais sur GitHub)
+# Filename sans slash = ignoré dans N'IMPORTE QUEL dossier (racine, rpa/, etc.).
+google-oauth.json
+google-token.json
+
 # RPA Colissimo : profils de navigateur (cookies/login) + captures/artefacts de test
 rpa/.userdata/
 rpa/.chromium/
