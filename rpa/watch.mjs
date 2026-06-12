@@ -36,12 +36,34 @@ const cmd = (arr) =>
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-function runRobot(ref) {
+// Lance le bon script selon le job reçu :
+//   "cart:CMD_xxx" → ajoute le colis au panier (sans payer)   [colissimo.mjs + RPA_CART_ONLY=1]
+//   "pay"          → paie TOUT le panier + récupère les étiquettes   [pay-cart.mjs]
+//   "CMD_xxx"      → ancien mode : remplit + paie un seul colis  [colissimo.mjs]
+function runRobot(job) {
   return new Promise((resolve) => {
-    console.log(`▶️  Robot lancé pour ${ref} — Edge va s'ouvrir, paie quand il est sur la page de paiement.`)
-    const p = spawn(process.execPath, ["colissimo.mjs", ref], { cwd: __dirname, stdio: "inherit" })
+    let script, args, env, label
+    if (job === "pay") {
+      script = "pay-cart.mjs"
+      args = []
+      env = { ...process.env }
+      label = "paiement groupé du panier"
+    } else if (job.startsWith("cart:")) {
+      const ref = job.slice(5)
+      script = "colissimo.mjs"
+      args = [ref]
+      env = { ...process.env, RPA_CART_ONLY: "1" }
+      label = `ajout au panier ${ref}`
+    } else {
+      script = "colissimo.mjs"
+      args = [job]
+      env = { ...process.env }
+      label = `génération ${job}`
+    }
+    console.log(`▶️  Robot lancé — ${label}`)
+    const p = spawn(process.execPath, [script, ...args], { cwd: __dirname, stdio: "inherit", env })
     p.on("exit", (code) => {
-      console.log(`◀️  Robot ${ref} terminé (code ${code}).\n`)
+      console.log(`◀️  Robot terminé — ${label} (code ${code}).\n`)
       resolve()
     })
     p.on("error", (e) => {
@@ -55,18 +77,18 @@ console.log("👁️  Veilleur démarré. En attente des « Générer le bordere
 console.log("    (Garde cette fenêtre ouverte. Ctrl+C pour arrêter.)\n")
 
 while (true) {
-  let ref = null
+  let job = null
   try {
-    // BLPOP : attente bloquante (jusqu'à 10 s) → on récupère la commande DÈS qu'elle arrive
-    // (latence quasi nulle après le clic « Générer »), sans marteler Redis.
+    // BLPOP : attente bloquante (jusqu'à 10 s) → on récupère le job DÈS qu'il arrive
+    // (latence quasi nulle après le clic), sans marteler Redis.
     const res = (await cmd(["BLPOP", "robot:queue", 10]))?.result
-    ref = Array.isArray(res) ? res[1] : null // BLPOP renvoie [clé, valeur] ou null (timeout)
+    job = Array.isArray(res) ? res[1] : null // BLPOP renvoie [clé, valeur] ou null (timeout)
   } catch (e) {
     console.log("⚠️ Redis indisponible: " + (e?.message ?? e))
     await sleep(2000) // back-off si Redis est momentanément KO
   }
-  if (ref) {
-    console.log(`📥 Commande à générer : ${ref}`)
-    await runRobot(ref) // séquentiel : on attend la fermeture d'Edge avant la suivante
+  if (job) {
+    console.log(`📥 Job reçu : ${job}`)
+    await runRobot(job) // séquentiel : on attend la fin du robot avant le job suivant
   }
 }

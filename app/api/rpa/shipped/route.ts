@@ -7,9 +7,15 @@
 //  - JSON { ref, status } → simple changement de statut (ex. robot fermé sans payer →
 //    on remet la commande en "paid" pour réafficher le bouton « Générer »).
 import { updateOrder, type OrderStatus } from "@/lib/orders"
-import { refreshOrderMessage, refreshCustomerMessage, sendLabelToChannel, deleteChannelMessage } from "@/lib/telegram"
+import {
+  refreshOrderMessage,
+  refreshCustomerMessage,
+  sendLabelToChannel,
+  deleteChannelMessage,
+  refreshCartSummary,
+} from "@/lib/telegram"
 
-const ALLOWED: OrderStatus[] = ["pending", "accepted", "paid", "generating", "label_generated", "cancelled"]
+const ALLOWED: OrderStatus[] = ["pending", "accepted", "paid", "in_cart", "generating", "label_generated", "cancelled"]
 
 export async function POST(req: Request) {
   if (!process.env.RPA_API_KEY || req.headers.get("x-robot-key") !== process.env.RPA_API_KEY) {
@@ -50,6 +56,8 @@ export async function POST(req: Request) {
     // Côté client Telegram : on passe le statut à « expédié » (qui renvoie vers l'email La Poste
     // pour le numéro de suivi). Le détail du suivi colis, lui, arrive par email du destinataire.
     await refreshCustomerMessage(updated)
+    // Un colis vient de quitter le panier (in_cart → expédié) → met à jour le récap panier.
+    await refreshCartSummary().catch(() => {})
     return Response.json({ ok: true, ref, status: updated.status, trackingNumber: updated.trackingNumber ?? null })
   }
 
@@ -63,6 +71,8 @@ export async function POST(req: Request) {
   const updated = await updateOrder(ref, { status })
   if (!updated) return new Response("Commande introuvable", { status: 404 })
   await refreshOrderMessage(updated)
+  // Ajout/retrait du panier groupé → met à jour le message récap « Panier du jour ».
+  if (status === "in_cart" || status === "paid") await refreshCartSummary().catch(() => {})
   return Response.json({ ok: true, ref, status: updated.status })
 }
 

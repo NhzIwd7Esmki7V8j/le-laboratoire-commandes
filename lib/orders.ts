@@ -10,13 +10,15 @@ export type Country = "FR" | "BE"
 //   pending          → nouvelle, en attente de validation admin
 //   accepted         → acceptée, en attente de paiement ("À payer")
 //   paid             → paiement reçu, prête à expédier ("À expédier")
-//   generating       → génération du bordereau Boxtal en cours (lock)
+//   in_cart          → colis ajouté au panier Colissimo, en attente du paiement GROUPÉ
+//   generating       → génération du bordereau en cours (lock)
 //   label_generated  → bordereau généré (tracking + PDF dispo)
 //   cancelled        → commande / bordereau annulé(e)
 export type OrderStatus =
   | "pending"
   | "accepted"
   | "paid"
+  | "in_cart"
   | "generating"
   | "label_generated"
   | "cancelled"

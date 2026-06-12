@@ -63,6 +63,14 @@ export async function POST(req: Request) {
   const answer: Answer = (text, alert = false) =>
     tg("answerCallbackQuery", { callback_query_id: cb.id, text, show_alert: alert })
 
+  // 💳 PANIER GROUPÉ : « Tout payer » (callback paycart:ALL) — action GLOBALE, sans commande
+  // précise → on la traite avant le chargement d'une commande.
+  if (action === "paycart") {
+    await redis.rpush("robot:queue", "pay")
+    await answer("Paiement du panier lancé 💳 — le robot paie tout et récupère les étiquettes.")
+    return new Response("ok", { status: 200 })
+  }
+
   if (!ref) {
     await answer()
     return new Response("ok", { status: 200 })
@@ -112,6 +120,24 @@ export async function POST(req: Request) {
           await refreshCustomerMessage(updated)
         }
         await answer("Génération du bordereau lancée ⚗️ — le robot va s'ouvrir sur ta machine.")
+        break
+      }
+      case "cart": {
+        // 🛒 PANIER GROUPÉ — ajoute le colis au panier Colissimo (SANS payer).
+        // Le robot remplit le parcours et met le colis au panier, puis repasse la commande
+        // en "in_cart". Le paiement se fait ensuite en une fois via « Tout payer ».
+        if (order.status === "in_cart") {
+          await answer("Déjà au panier 🛒", true)
+          break
+        }
+        if (order.status !== "paid") {
+          await answer("La commande doit d'abord être payée.", true)
+          break
+        }
+        const updated = await updateOrder(ref, { status: "generating" }) // lock visuel
+        await redis.rpush("robot:queue", `cart:${ref}`)
+        if (updated) await refreshOrderMessage(updated)
+        await answer("Ajout au panier lancé 🛒 — le robot prépare le colis.")
         break
       }
       case "cancel":

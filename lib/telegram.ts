@@ -3,10 +3,12 @@
 // Principe : le message Telegram d'une commande est TOUJOURS re-rendu en entier
 // à partir de l'objet `Order` (renderOrderMessage). Plus besoin de re-parser le texte
 // existant pour changer un statut — on recharge la commande depuis Redis et on ré-affiche.
-import { updateOrder, type Order } from "./orders"
+import { updateOrder, listOrders, type Order } from "./orders"
+import { redis } from "./redis"
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const TRACKING_TOKEN = process.env.TELEGRAM_TRACKING_BOT_TOKEN
+const ADMIN_CHAT = process.env.TELEGRAM_CHAT_ID
 
 // URL de suivi La Poste / Colissimo (pour le bouton final côté client)
 function laPosteTrackingUrl(trackingNumber: string): string {
@@ -125,6 +127,8 @@ function statusFooter(order: Order): string {
       return "🟡 Acceptée — en attente de paiement"
     case "paid":
       return "📦 Payé — à expédier"
+    case "in_cart":
+      return "🛒 Au panier — en attente du paiement groupé"
     case "generating":
       return "🟢 Paiement validé — génération du bordereau…"
     case "label_generated":
@@ -309,10 +313,14 @@ export function orderButtons(order: Order): { inline_keyboard: InlineButton[][] 
       break
     case "paid":
       // Une fois payé, plus d'annulation possible (commande protégée).
+      // Paiement GROUPÉ : on ajoute le colis au panier (sans payer) ; le paiement se fait
+      // ensuite en une seule fois pour tout le panier (bouton « Tout payer » du récap).
       rows.push([
-        { text: "⚗️ Générer le bordereau", callback_data: `gen:${order.ref}` },
+        { text: "🛒 Ajouter au panier", callback_data: `cart:${order.ref}` },
       ])
       break
+    case "in_cart":
+      break // colis au panier groupé : le paiement se fait via le bouton « Tout payer » du récap
     case "generating":
       break // aucun bouton pendant la génération (évite le double-clic)
     case "label_generated":
@@ -323,4 +331,60 @@ export function orderButtons(order: Order): { inline_keyboard: InlineButton[][] 
       break
   }
   return { inline_keyboard: rows }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PANIER GROUPÉ : message récap (« Panier du jour : N colis ») dans le canal admin,
+// avec un bouton « 💳 Tout payer ». Mis à jour à chaque ajout/retrait, supprimé quand vide.
+// ─────────────────────────────────────────────────────────────────────────────
+const CART_MSG_KEY = "cart:summaryMsgId"
+
+// Prix estimé d'un bordereau (pour afficher un total avant paiement) : FR domicile ~7,59 €,
+// FR relais ~6,89 €, Belgique ~14,99 €.
+function estLabelEur(o: Order): number {
+  if (o.pays === "BE") return 14.99
+  return o.deliveryMode === "relais" ? 6.89 : 7.59
+}
+
+export async function refreshCartSummary(): Promise<void> {
+  if (!ADMIN_CHAT) return
+  const inCart = await listOrders("in_cart")
+  const existingId = await redis.get<number>(CART_MSG_KEY)
+
+  // Panier vide → on supprime le message récap s'il existe.
+  if (inCart.length === 0) {
+    if (existingId) {
+      await tg("deleteMessage", { chat_id: ADMIN_CHAT, message_id: existingId }).catch(() => {})
+      await redis.del(CART_MSG_KEY)
+    }
+    return
+  }
+
+  const total = inCart.reduce((s, o) => s + estLabelEur(o), 0)
+  const lines = inCart
+    .map((o) => `• <b>${escapeHtml(o.ref)}</b> — ${escapeHtml(o.prenom)} ${escapeHtml(o.nom)} ${FLAG[o.pays] ?? ""}`)
+    .join("\n")
+  const text =
+    `🛒 <b>PANIER DU JOUR</b>\n${SEP}\n` +
+    `📦 <b>${inCart.length}</b> colis en attente de paiement\n` +
+    `💶 Total estimé : <b>~${total.toFixed(2)} €</b>\n${SEP}\n` +
+    `${lines}\n${SEP}\n` +
+    `👉 Vérifie le panier, puis paie tout en une seule fois.`
+  const reply_markup = {
+    inline_keyboard: [[{ text: `💳 Tout payer (${inCart.length} colis · ~${total.toFixed(2)} €)`, callback_data: "paycart:ALL" }]],
+  }
+
+  // Édite le récap existant ; s'il a été supprimé entre-temps, on en recrée un.
+  if (existingId) {
+    const r = await tgJson("editMessageText", {
+      chat_id: ADMIN_CHAT,
+      message_id: existingId,
+      text,
+      parse_mode: "HTML",
+      reply_markup,
+    })
+    if (r.ok) return
+  }
+  const sent = await tgJson("sendMessage", { chat_id: ADMIN_CHAT, text, parse_mode: "HTML", reply_markup })
+  if (sent.ok && sent.result?.message_id) await redis.set(CART_MSG_KEY, sent.result.message_id)
 }

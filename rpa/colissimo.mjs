@@ -40,6 +40,9 @@ const REAL =
   process.env.RPA_AUDIT !== "1" &&
   process.env.RPA_MAP_PAYMENT !== "1" &&
   process.env.RPA_MAP_RELAY !== "1"
+// Mode PANIER GROUPÉ : remplit le parcours + ajoute le colis au panier, puis S'ARRÊTE (sans
+// payer). Le paiement de tout le panier se fait ensuite en une fois (pay-cart.mjs).
+const CART_ONLY = process.env.RPA_CART_ONLY === "1"
 // Étape courante du parcours (pour situer un éventuel blocage dans l'alerte).
 let step = "démarrage"
 let hasPaid = false
@@ -483,7 +486,8 @@ try {
   // 🧹 Panier propre garanti : on vide tout colis résiduel d'un run précédent AVANT de commencer.
   // (Un échec après l'ajout au panier laisserait sinon un colis → 2 colis au run suivant → la
   // garde anti-surfacturation bloquerait le paiement. On part toujours d'un panier vide.)
-  if (REAL) {
+  // ⚠️ SAUF en mode PANIER GROUPÉ : là on ACCUMULE plusieurs colis, donc surtout pas de vidage.
+  if (REAL && !CART_ONLY) {
     step = "nettoyage panier (démarrage)"
     const emptied = await clearCart()
     log(emptied ? "Panier vérifié vide avant de commencer." : "⚠️ Panier non confirmé vide (on continue, la garde anti-surfacturation protège).")
@@ -654,6 +658,16 @@ try {
       await sendAlert("ajout au panier", "La Poste renvoie une erreur technique à l'ajout au panier (« réessayer dans quelques minutes »). Relance « Générer » dans un moment.", true)
       throw new Error("Ajout au panier impossible (erreur technique La Poste) — réessaie plus tard.")
     }
+
+    // 🛒 MODE PANIER GROUPÉ : le colis est dans le panier → on s'arrête là (PAS de paiement).
+    // La commande passe en « in_cart » ; le paiement de tout le panier se fera via pay-cart.mjs.
+    if (CART_ONLY) {
+      log("🛒 Colis ajouté au panier (paiement groupé) — pas de paiement maintenant.")
+      await setStatus("in_cart")
+      await ctx.close().catch(() => {})
+      process.exit(0)
+    }
+
     await page.waitForTimeout(2000)
     step = "connexion La Poste"
     await loginIfNeeded() // une page de connexion peut apparaître ici
