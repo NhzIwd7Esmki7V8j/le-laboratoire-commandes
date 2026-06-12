@@ -7,6 +7,7 @@ interface OrderInput {
   nom: string
   prenom: string
   telephone: string
+  email?: string
   pays?: Country
   deliveryMode?: DeliveryMode
   // Livraison à domicile
@@ -23,6 +24,7 @@ export async function submitOrder(data: OrderInput) {
   const nom = (data.nom ?? "").trim()
   const prenom = (data.prenom ?? "").trim()
   const telephone = (data.telephone ?? "").trim()
+  const email = (data.email ?? "").trim().toLowerCase()
   const pays: Country = data.pays === "BE" ? "BE" : "FR"
   const mode: DeliveryMode = data.deliveryMode === "relais" ? "relais" : "domicile"
   const message = (data.message ?? "").trim().slice(0, 1000)
@@ -34,9 +36,13 @@ export async function submitOrder(data: OrderInput) {
   const relayId = (data.relayId ?? "").trim()
 
   const nameRegex = /^[A-Za-zÀ-ÿ' -]+$/
-  const phoneRegex = /^\+?[0-9 ().-]{8,20}$/
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   // Code postal selon le pays : FR = 5 chiffres, BE = 4 chiffres
   const cpRegex = pays === "BE" ? /^\d{4}$/ : /^\d{5}$/
+  // Téléphone normalisé (sans espaces/ponctuation, +33/+32 → 0) puis validé strictement :
+  // FR = 10 chiffres commençant par 0 (06/07 mobile recommandé) ; BE = 9-10 chiffres.
+  const telDigits = telephone.replace(/[^\d+]/g, "").replace(/^\+33/, "0").replace(/^\+32/, "0")
+  const phoneOk = pays === "BE" ? /^0\d{8,9}$/.test(telDigits) : /^0[1-9]\d{8}$/.test(telDigits)
 
   // Validation côté serveur (ne jamais faire confiance au client)
   if (!nom || !prenom || !telephone) {
@@ -45,8 +51,17 @@ export async function submitOrder(data: OrderInput) {
   if (!nameRegex.test(nom) || !nameRegex.test(prenom)) {
     return { success: false, error: "Le nom et le prénom ne doivent contenir que des lettres." }
   }
-  if (!phoneRegex.test(telephone)) {
-    return { success: false, error: "Le numéro de téléphone est invalide." }
+  if (!phoneOk) {
+    return {
+      success: false,
+      error:
+        pays === "BE"
+          ? "Numéro de téléphone belge invalide (ex : 0470 12 34 56)."
+          : "Numéro de téléphone invalide (10 chiffres, ex : 06 12 34 56 78).",
+    }
+  }
+  if (email && !emailRegex.test(email)) {
+    return { success: false, error: "L'adresse email saisie n'est pas valide." }
   }
   if (message.length < 3) {
     return {
@@ -93,6 +108,7 @@ export async function submitOrder(data: OrderInput) {
     nom,
     prenom,
     telephone,
+    email: email || undefined,
     message: message || undefined,
     deliveryMode: mode,
     pays,

@@ -30,6 +30,7 @@ export interface Order {
   nom: string
   prenom: string
   telephone: string
+  email?: string // optionnel — notifications Colissimo (suivi, code de retrait en point relais)
   message?: string
 
   // Livraison

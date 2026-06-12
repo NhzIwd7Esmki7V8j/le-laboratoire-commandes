@@ -11,6 +11,7 @@ import {
   User,
   MapPin,
   Phone,
+  Mail,
   MessageSquare,
   Send,
   CheckCircle2,
@@ -30,6 +31,8 @@ import { RelayPicker, type SelectedRelay } from "@/components/relay-picker"
 const NAME_REGEX = /^[A-Za-zÀ-ÿ' -]+$/
 // Chiffres avec un + optionnel au début, espaces, tirets, points et parenthèses
 const PHONE_REGEX = /^\+?[0-9 ().-]{8,20}$/
+// Email (format simple mais sûr) — champ optionnel, validé seulement s'il est rempli
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 // Code postal : FR = 5 chiffres, BE = 4 chiffres
 const CP_REGEX_FR = /^\d{5}$/
 const CP_REGEX_BE = /^\d{4}$/
@@ -57,6 +60,10 @@ const EMPTY_FORM = {
 export function OrderSection() {
   const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("domicile")
   const [form, setForm] = useState(EMPTY_FORM)
+  // Email destinataire : optionnel mais recommandé (notifications Colissimo, code de retrait
+  // en point relais). État isolé pour ne pas alourdir le typage des champs obligatoires.
+  const [email, setEmail] = useState("")
+  const [emailError, setEmailError] = useState("")
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({})
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [errorMsg, setErrorMsg] = useState("")
@@ -186,6 +193,15 @@ export function OrderSection() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMsg("")
+    // Email optionnel : on ne valide que s'il est rempli (sinon on laisse passer).
+    const mail = email.trim()
+    if (mail && !EMAIL_REGEX.test(mail)) {
+      setEmailError("Email invalide (ex : prenom@mail.com).")
+      setStatus("error")
+      setErrorMsg("L'adresse email saisie n'est pas valide.")
+      return
+    }
+    setEmailError("")
     if (!validateAll()) {
       setStatus("error")
       setErrorMsg(
@@ -196,12 +212,14 @@ export function OrderSection() {
     setStatus("loading")
 
     try {
-      const result = await submitOrder({ ...form, deliveryMode })
+      const result = await submitOrder({ ...form, deliveryMode, email: mail })
 
       if (result.success) {
         setOrderRef(result.orderRef ?? "")
         setStatus("success")
         setForm(EMPTY_FORM)
+        setEmail("")
+        setEmailError("")
         setDeliveryMode("domicile")
         setErrors({})
       } else {
@@ -575,6 +593,39 @@ export function OrderSection() {
                     <p className="flex items-center gap-1 text-sm text-red-600">
                       <AlertCircle className="h-3.5 w-3.5" />
                       {errors.telephone}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="email" className="flex items-center gap-1.5 text-slate-700">
+                    <Mail className="h-4 w-4 text-violet-500" />
+                    Email <span className="text-xs font-normal text-slate-400">(recommandé)</span>
+                  </Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    inputMode="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      if (emailError) setEmailError("")
+                    }}
+                    onBlur={() => {
+                      const m = email.trim()
+                      setEmailError(m && !EMAIL_REGEX.test(m) ? "Email invalide (ex : prenom@mail.com)." : "")
+                    }}
+                    placeholder="Ex : prenom@mail.com"
+                    aria-invalid={!!emailError}
+                    className={emailError ? "border-red-400 focus-visible:ring-red-400" : ""}
+                  />
+                  <p className="text-xs text-slate-400">
+                    Pour recevoir le suivi et, en point relais, le code de retrait du colis.
+                  </p>
+                  {emailError && (
+                    <p className="flex items-center gap-1 text-sm text-red-600">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      {emailError}
                     </p>
                   )}
                 </div>
