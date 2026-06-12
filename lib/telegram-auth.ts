@@ -4,7 +4,6 @@
 // C'est la SEULE protection d'accès à l'API admin : chaque route admin doit appeler
 // requireAdmin(req) et refuser si invalide ou si l'utilisateur n'est pas l'admin.
 import crypto from "crypto"
-import { SESSION_COOKIE, verifySession, parseCookies } from "./admin-session"
 
 export function validateInitData(
   initData: string,
@@ -48,11 +47,7 @@ export type AdminCheck =
 // Garde à appeler en tête de CHAQUE route admin.
 // L'init data est transmis par la Mini App dans le header X-Telegram-Init-Data.
 export function requireAdmin(req: Request): AdminCheck {
-  // 1) Back-office WEB : cookie de session signé (mot de passe).
-  const cookies = parseCookies(req.headers.get("cookie"))
-  if (verifySession(cookies[SESSION_COOKIE])) return { ok: true }
-
-  // 2) Mini App TELEGRAM : initData signé.
+  // Auth via l'initData signé envoyé par la Mini App Telegram (seule interface admin).
   const initData = req.headers.get("X-Telegram-Init-Data") ?? ""
   const botToken = process.env.TELEGRAM_BOT_TOKEN ?? ""
   const { valid, userId } = validateInitData(initData, botToken)
