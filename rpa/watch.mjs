@@ -57,14 +57,16 @@ console.log("    (Garde cette fenêtre ouverte. Ctrl+C pour arrêter.)\n")
 while (true) {
   let ref = null
   try {
-    ref = (await cmd(["LPOP", "robot:queue"]))?.result
+    // BLPOP : attente bloquante (jusqu'à 10 s) → on récupère la commande DÈS qu'elle arrive
+    // (latence quasi nulle après le clic « Générer »), sans marteler Redis.
+    const res = (await cmd(["BLPOP", "robot:queue", 10]))?.result
+    ref = Array.isArray(res) ? res[1] : null // BLPOP renvoie [clé, valeur] ou null (timeout)
   } catch (e) {
     console.log("⚠️ Redis indisponible: " + (e?.message ?? e))
+    await sleep(2000) // back-off si Redis est momentanément KO
   }
   if (ref) {
     console.log(`📥 Commande à générer : ${ref}`)
     await runRobot(ref) // séquentiel : on attend la fermeture d'Edge avant la suivante
-  } else {
-    await sleep(5000)
   }
 }

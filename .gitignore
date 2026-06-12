@@ -28,6 +28,7 @@ image-explication/
 
 # RPA Colissimo : profils de navigateur (cookies/login) + captures/artefacts de test
 rpa/.userdata/
+rpa/.chromium/
 rpa/.inspect/
 rpa/.inspect2/
 rpa/*.png

@@ -76,6 +76,36 @@ export async function sendLabelToChannel(
   }
 }
 
+// Poste une ALERTE (échec du robot) dans le canal admin, en réponse au message de la
+// commande, avec une capture d'écran optionnelle. Best-effort (n'échoue jamais bruyamment).
+export async function sendAdminAlert(
+  order: Order,
+  caption: string,
+  photo?: Uint8Array | ArrayBuffer,
+): Promise<void> {
+  if (!TOKEN || !order.telegramChatId) return
+  try {
+    if (photo) {
+      const fd = new FormData()
+      fd.append("chat_id", String(order.telegramChatId))
+      fd.append("caption", caption.slice(0, 1024))
+      fd.append("parse_mode", "HTML")
+      if (order.telegramMessageId) fd.append("reply_to_message_id", String(order.telegramMessageId))
+      fd.append("photo", new Blob([photo], { type: "image/png" }), `error-${order.ref}.png`)
+      await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`, { method: "POST", body: fd })
+    } else {
+      await tg("sendMessage", {
+        chat_id: order.telegramChatId,
+        text: caption,
+        parse_mode: "HTML",
+        reply_to_message_id: order.telegramMessageId,
+      })
+    }
+  } catch {
+    /* best-effort : une alerte ratée ne doit pas casser le flux */
+  }
+}
+
 // Supprime un message du canal (best-effort).
 export async function deleteChannelMessage(order: Order, messageId?: number): Promise<void> {
   const id = messageId ?? order.telegramMessageId
@@ -218,6 +248,33 @@ export async function sendCustomerMessage(order: Order, chatId: number): Promise
   } catch {
     return null
   }
+}
+
+// Envoie au client un NOUVEAU message de suivi (≠ édition) → le client reçoit une vraie
+// NOTIFICATION Telegram (utile pour l'événement « colis expédié »). Renvoie le message_id.
+export async function notifyCustomerMessage(order: Order): Promise<number | null> {
+  if (!TRACKING_TOKEN || !order.customerChatId) return null
+  try {
+    const res = await tgJson<{ ok: boolean; result?: { message_id: number } }>(
+      "sendMessage",
+      {
+        chat_id: order.customerChatId,
+        text: renderCustomerMessage(order),
+        parse_mode: "HTML",
+        reply_markup: customerStatusButtons(order),
+      },
+      TRACKING_TOKEN,
+    )
+    return res?.ok && res.result?.message_id ? res.result.message_id : null
+  } catch {
+    return null
+  }
+}
+
+// Supprime un message côté bot de suivi client (best-effort) — pour éviter les doublons.
+export async function deleteCustomerMessage(chatId: number, messageId?: number): Promise<void> {
+  if (!chatId || !messageId) return
+  await tg("deleteMessage", { chat_id: chatId, message_id: messageId }, TRACKING_TOKEN).catch(() => {})
 }
 
 // Édite en place le message de suivi (no-op si pas encore envoyé / pas de bot configuré).

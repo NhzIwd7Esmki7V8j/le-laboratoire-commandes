@@ -280,9 +280,10 @@ export function OrderSection() {
                       <Send className="h-5 w-5" />
                       Recevoir mon suivi sur Telegram
                     </a>
-                    <p className="mt-2 text-xs text-slate-500">
-                      Clique, appuie sur « Démarrer » : tu recevras ton numéro de suivi automatiquement
-                      dès l&apos;expédition.
+                    <p className="mt-2 text-xs font-medium text-slate-600">
+                      👉 <span className="font-semibold text-sky-700">Indispensable</span> pour
+                      recevoir ton numéro de suivi automatiquement : clique, puis appuie sur
+                      « Démarrer ». Sans ça, on ne pourra pas te l&apos;envoyer directement.
                     </p>
                   </div>
                 )}
@@ -524,6 +525,8 @@ export function OrderSection() {
                       </Label>
                       <RelayPicker
                         defaultPostCode={form.codePostal}
+                        address={form.adresse}
+                        city={form.ville}
                         country={form.pays}
                         onSelect={handleRelaySelect}
                       />

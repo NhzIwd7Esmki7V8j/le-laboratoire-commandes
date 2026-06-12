@@ -37,10 +37,14 @@ function pinIcon(L: any, active: boolean) {
 // Sélecteur de Point Retrait Colissimo — carte interactive + liste (API Boxtal via /api/relays).
 export function RelayPicker({
   defaultPostCode,
+  address = "",
+  city = "",
   country = "FR",
   onSelect,
 }: {
   defaultPostCode?: string
+  address?: string
+  city?: string
   country?: "FR" | "BE"
   onSelect: (relay: SelectedRelay) => void
 }) {
@@ -78,6 +82,10 @@ export function RelayPicker({
       setError(`Entre un code postal valide (${maxLen} chiffres).`)
       return
     }
+    if (address.trim().length < 3 || city.trim().length < 2) {
+      setError("Renseigne d'abord ton adresse (rue + ville) au-dessus.")
+      return
+    }
     setLoading(true)
     setError("")
     setSearched(true)
@@ -85,7 +93,9 @@ export function RelayPicker({
     setCollapsed(false)
     setPoints([])
     try {
-      const res = await fetch(`/api/relays?cp=${encodeURIComponent(code)}&country=${country}`)
+      const res = await fetch(
+        `/api/relays?cp=${encodeURIComponent(code)}&city=${encodeURIComponent(city)}&address=${encodeURIComponent(address)}&country=${country}`,
+      )
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
       setPoints(Array.isArray(data.points) ? data.points : [])

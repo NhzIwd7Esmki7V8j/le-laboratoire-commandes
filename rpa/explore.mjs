@@ -46,14 +46,10 @@ const STEPS_OLD = [
 
 // Vider le panier : aller au panier et repérer les boutons Supprimer.
 const STEPS = [
-  { goto: "https://www.laposte.fr/colissimo-en-ligne/parcours/recapitulatif" },
-  { wait: 5000 },
-  { click: "text=Accéder au panier" },
-  { wait: 5000 },
+  { goto: "https://www.laposte.fr/checkout/recapitulatif" },
+  { wait: 6000 },
   { click: 'button:has-text("Supprimer")' },
-  { wait: 2000 },
-  { click: 'button:has-text("Confirmer")' },
-  { wait: 3000 },
+  { wait: 2500 },
 ]
 
 const ctx = await chromium.launchPersistentContext(join(__dirname, ".userdata"), {
