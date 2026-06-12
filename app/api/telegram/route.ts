@@ -100,6 +100,7 @@ async function sendInfo(chatId: number): Promise<void> {
   await tg("sendMessage", {
     chat_id: chatId,
     parse_mode: "HTML",
+    disable_web_page_preview: true,
     text:
       `ℹ️ <b>Comment ça marche</b>\n` +
       `━━━━━━━━━━\n` +
@@ -109,7 +110,8 @@ async function sendInfo(chatId: number): Promise<void> {
       `<b>Pour expédier (le soir, tout d'un coup) :</b>\n` +
       `3️⃣ Tape <b>/colis</b> → ça affiche le lot + le total → <b>tu confirmes le paiement</b> avec le bouton ✅\n` +
       `→ le robot paie tout en une fois, range les bordereaux sur le Drive et envoie le numéro de suivi à chaque client.\n\n` +
-      `⚠️ Le PC doit être <b>allumé</b> avec la fenêtre <b>Veilleur</b> ouverte (sinon ça attend, rien n'est perdu).\n` +
+      `📁 <b>Tous les bordereaux</b> sont rangés ici (par jour) :\n` +
+      `<a href="https://drive.google.com/drive/folders/1PeSWOhJ-ZtfyHX4St5vJIJNHErkAVKZG">📂 Ouvrir le Google Drive</a>\n` +
       `━━━━━━━━━━\n` +
       `<b>Les commandes du canal :</b>\n` +
       `🛒 <b>/colis</b> — paie et expédie TOUTES les commandes payées en une seule fois (avec confirmation).\n` +
