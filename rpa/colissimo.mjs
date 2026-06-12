@@ -503,6 +503,19 @@ try {
     log("Mode : domicile (en boîte aux lettres)")
     await maybe('label[for="card-input-id-L_BAL"]', { timeout: 6000, force: true })
     await fillRecipient()
+    // Notifier le destinataire : tél + email → c'est par là que La Poste envoie le SUIVI au client.
+    // Indispensable maintenant qu'on ne notifie plus le client nous-mêmes sur Telegram.
+    const recMail =
+      order.email ||
+      `${order.prenom}.${order.nom}`.toLowerCase().normalize("NFD").replace(/[^a-z0-9.]/g, "") + "@gmail.com"
+    await fill("#phone", order.telephone)
+    // En domicile, le champ email est DÉSACTIVÉ tant que la case « Notifier par e-mail » (#notif)
+    // n'est pas cochée → on la coche d'abord pour pouvoir saisir l'email du destinataire.
+    await page.locator("#notif").check({ force: true }).catch(() => {})
+    await page.waitForTimeout(600)
+    await fill("#email", recMail).catch(() => log("⚠️ Email destinataire non saisi (champ indispo)."))
+    await page.waitForTimeout(800)
+    log("Notification destinataire (tél + email) remplie.")
   }
 
   if (TEST) {
