@@ -551,9 +551,25 @@ try {
     await maybe('button:has-text("Étape suivante")', { timeout: 5000 }) // domicile → écran Options
     await page.waitForTimeout(1500)
     step = "ajout au panier"
-    await maybe('button:has-text("Ajouter au panier")', { timeout: 8000 })
-    await page.waitForTimeout(2000)
-    await maybe("text=Accéder au panier", { timeout: 8000 })
+    // « Ajouter au panier » peut renvoyer une ERREUR TECHNIQUE transitoire côté La Poste
+    // (« réessayer dans quelques minutes ») → on réessaie quelques fois avant d'abandonner.
+    let inCart = false
+    for (let i = 0; i < 4 && !inCart; i++) {
+      await maybe('button:has-text("Ajouter au panier")', { timeout: 8000 })
+      await page.waitForTimeout(2500)
+      // Succès = le bouton « Accéder au panier » apparaît → on clique pour avancer.
+      if (await maybe("text=Accéder au panier", { timeout: 6000 })) {
+        inCart = true
+        break
+      }
+      const techErr = await txt("Erreur lors de l").isVisible({ timeout: 1500 }).catch(() => false)
+      log(`Ajout au panier KO${techErr ? " (erreur technique La Poste)" : ""} (tentative ${i + 1}/4) → on réessaie…`)
+      await page.waitForTimeout(6000)
+    }
+    if (!inCart) {
+      await sendAlert("ajout au panier", "La Poste renvoie une erreur technique à l'ajout au panier (« réessayer dans quelques minutes »). Relance « Générer » dans un moment.", true)
+      throw new Error("Ajout au panier impossible (erreur technique La Poste) — réessaie plus tard.")
+    }
     await page.waitForTimeout(2000)
     step = "connexion La Poste"
     await loginIfNeeded() // une page de connexion peut apparaître ici
