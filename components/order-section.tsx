@@ -317,9 +317,10 @@ export function OrderSection() {
                 <div className="mb-6 mx-auto flex max-w-md items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-left">
                   <Mail className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />
                   <p className="text-sm text-slate-600">
-                    📦 Le <span className="font-semibold text-slate-800">numéro de suivi du colis</span> t&apos;arrivera
-                    automatiquement <span className="font-semibold text-slate-800">par email</span> dès sa prise en charge
-                    par La Poste (pense à vérifier tes spams).
+                    📦 Le <span className="font-semibold text-slate-800">numéro de suivi du colis</span>{" "}
+                    t&apos;arrivera automatiquement{" "}
+                    <span className="font-semibold text-slate-800">par email</span> dès sa prise en charge par La Poste
+                    (pense à vérifier tes spams).
                   </p>
                 </div>
                 <p className="text-slate-600 mb-6 max-w-md mx-auto">
