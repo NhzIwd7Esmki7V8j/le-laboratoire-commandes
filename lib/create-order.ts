@@ -2,7 +2,7 @@
 // Logique PARTAGÉE, appelée par la route API /api/order (fetch côté client — fiable sur
 // Cloudflare) ET par l'action serveur submitOrder (compat). Renvoie {success, orderRef?, error?}.
 import { saveOrder, updateOrder, type Order, type Country, type DeliveryMode } from "@/lib/orders"
-import { renderOrderMessage, orderButtons, tgJson } from "@/lib/telegram"
+import { renderOrderMessage, orderButtons, tgJson, escapeHtml } from "@/lib/telegram"
 
 export interface OrderInput {
   nom: string
@@ -128,6 +128,18 @@ export async function createOrder(data: OrderInput) {
     await saveOrder(order)
   } catch (err) {
     console.log("[order] Erreur stockage Redis:", err)
+    // ⚠️ La commande N'A PAS pu être enregistrée (la base est KO) → on prévient l'admin sur le
+    // canal pour qu'il rappelle le client (le client, lui, a vu une erreur).
+    await tgJson("sendMessage", {
+      chat_id: chatId,
+      parse_mode: "HTML",
+      text:
+        `🚨 <b>ALERTE — commande NON enregistrée</b>\n` +
+        `Un client a essayé de commander mais la base était indisponible (commande perdue).\n` +
+        `👤 ${escapeHtml(prenom)} ${escapeHtml(nom)} · 📞 ${escapeHtml(telephone)}` +
+        (email ? ` · ✉️ ${escapeHtml(email)}` : "") +
+        `\n👉 Recontacte-le, et préviens si ça se reproduit.`,
+    }).catch(() => {})
     return { success: false, error: "Le service de commande est momentanément indisponible." }
   }
 

@@ -9,6 +9,7 @@ import { cancelAndDelete, type Answer } from "@/lib/order-actions"
 
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET
 const ADMIN_CHAT = process.env.TELEGRAM_CHAT_ID
+const ADMIN_USER = process.env.ADMIN_TELEGRAM_USER_ID
 
 // Prix estimé d'un bordereau (FR domicile ~7,59 / FR relais ~6,89 / Belgique ~14,99).
 function estLabelEur(o: { pays?: string; deliveryMode?: string }): number {
@@ -16,39 +17,43 @@ function estLabelEur(o: { pays?: string; deliveryMode?: string }): number {
   return o.deliveryMode === "relais" ? 6.89 : 7.59
 }
 
-// /colis → demande CONFIRMATION (nombre + total estimé) avant de payer, pour qu'un simple
-// clic ne déclenche jamais un gros paiement par accident.
+// Commandes à expédier = celles « payées » (à mettre au panier) + celles déjà « au panier »
+// (reprise : si le veilleur s'était éteint avant le paiement, on les récupère).
+async function shippableOrders() {
+  const [paid, inCart] = await Promise.all([listOrders("paid"), listOrders("in_cart")])
+  return { paid, inCart, all: [...paid, ...inCart] }
+}
+
+// /colis → demande CONFIRMATION (nombre + total estimé) avant de payer.
 async function askDayBatchConfirm(chatId: number): Promise<void> {
-  const paid = await listOrders("paid")
-  if (!paid.length) {
-    await tg("sendMessage", { chat_id: chatId, text: "📭 Aucune commande payée à expédier pour le moment." })
+  const { all } = await shippableOrders()
+  if (!all.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "📭 Aucune commande à expédier pour le moment." })
     return
   }
-  const total = paid.reduce((s, o) => s + estLabelEur(o), 0)
+  const total = all.reduce((s, o) => s + estLabelEur(o), 0)
   await tg("sendMessage", {
     chat_id: chatId,
     parse_mode: "HTML",
     text:
       `🛒 <b>Expédition du jour</b>\n\n` +
-      `📦 <b>${paid.length}</b> commande(s) prête(s)\n` +
+      `📦 <b>${all.length}</b> commande(s) prête(s)\n` +
       `💶 Total estimé : <b>~${total.toFixed(2)} €</b>\n\n` +
       `⚠️ Confirme pour PAYER et expédier tout le lot en une fois.`,
     reply_markup: {
-      inline_keyboard: [[{ text: `✅ Payer ${paid.length} colis (~${total.toFixed(2)} €)`, callback_data: "dobatch:ALL" }]],
+      inline_keyboard: [[{ text: `✅ Payer ${all.length} colis (~${total.toFixed(2)} €)`, callback_data: "dobatch:ALL" }]],
     },
   })
 }
 
-// 📦 Expédie TOUTES les commandes payées en une fois (après confirmation) :
-// chaque colis est ajouté au panier (robot), puis tout est payé en un seul paiement,
-// déposé sur le Drive, et le numéro de suivi est envoyé à chaque client.
+// 📦 Expédie tout en une fois : les « payées » sont mises au panier, les « au panier » y sont
+// déjà (reprise), puis paiement groupé + Drive + suivis.
 async function handleDayBatch(chatId: number): Promise<void> {
-  const paid = await listOrders("paid")
-  if (!paid.length) {
-    await tg("sendMessage", { chat_id: chatId, text: "📭 Aucune commande payée à expédier pour le moment." })
+  const { paid, all } = await shippableOrders()
+  if (!all.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "📭 Aucune commande à expédier pour le moment." })
     return
   }
-  // Verrou (passe en « génération ») + ajout au panier de chaque commande, puis paiement du lot.
   for (const o of paid) {
     await updateOrder(o.ref, { status: "generating" })
     await redis.rpush("robot:queue", `cart:${o.ref}`)
@@ -58,9 +63,35 @@ async function handleDayBatch(chatId: number): Promise<void> {
     chat_id: chatId,
     parse_mode: "HTML",
     text:
-      `📦 <b>Expédition du jour lancée — ${paid.length} commande(s)</b>\n\n` +
+      `📦 <b>Expédition lancée — ${all.length} commande(s)</b>\n\n` +
       `• Ajout des colis au panier\n• Paiement groupé en une fois\n• Dépôt des bordereaux sur le Drive\n• Envoi du numéro de suivi à chaque client\n\n` +
       `⏳ Garde le robot (veilleur) allumé sur le PC — ça tourne tout seul.`,
+  })
+}
+
+// 📊 /aujourdhui — récap de la journée + ce qu'il reste à expédier.
+async function sendDayStats(chatId: number): Promise<void> {
+  const orders = await listOrders()
+  const parisDay = (ms: number) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date(ms))
+  const todayStr = parisDay(Date.now())
+  const today = orders.filter((o) => parisDay(o.createdAt) === todayStr)
+  const nb = (s: string) => today.filter((o) => o.status === s).length
+  const toShip = orders.filter((o) => o.status === "paid" || o.status === "in_cart")
+  const total = toShip.reduce((s, o) => s + estLabelEur(o), 0)
+  const dateLabel = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit" }).format(new Date())
+  await tg("sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text:
+      `📊 <b>Aujourd'hui (${dateLabel})</b>\n` +
+      `━━━━━━━━━━\n` +
+      `📥 Reçues : <b>${today.length}</b>\n` +
+      `🚀 Expédiées : <b>${nb("label_generated")}</b>\n` +
+      `❌ Annulées : <b>${nb("cancelled")}</b>\n` +
+      `━━━━━━━━━━\n` +
+      `📦 <b>À expédier maintenant : ${toShip.length} colis</b> (~${total.toFixed(2)} €)\n` +
+      (toShip.length ? `👉 Tape <b>/colis</b> pour tout envoyer.` : `✅ Rien en attente — tout est à jour !`),
   })
 }
 
@@ -106,12 +137,22 @@ export async function POST(req: Request) {
   const msg = update?.message || update?.channel_post
   const msgText = typeof msg?.text === "string" ? msg.text.trim() : ""
 
-  // 📦 Commande ADMIN : /colis — UNIQUEMENT dans le canal où arrivent les commandes
-  // (TELEGRAM_CHAT_ID). Ignorée partout ailleurs (message privé, autre groupe…).
+  // Commande ADMIN autorisée = dans le canal admin (TELEGRAM_CHAT_ID), ET si c'est un message
+  // d'un utilisateur (pas un post de canal anonyme), c'est bien le COMPTE admin.
+  const fromAdmin =
+    !!ADMIN_CHAT &&
+    String(msg?.chat?.id) === ADMIN_CHAT &&
+    (!msg?.from?.id || !ADMIN_USER || String(msg.from.id) === ADMIN_USER)
+
+  // 📦 /colis — expédition du jour (réservée à l'admin, dans son canal).
   if (msgText.startsWith("/colis")) {
-    if (ADMIN_CHAT && String(msg?.chat?.id) === ADMIN_CHAT) {
-      await askDayBatchConfirm(msg.chat.id).catch(() => {})
-    }
+    if (fromAdmin) await askDayBatchConfirm(msg.chat.id).catch(() => {})
+    return new Response("ok", { status: 200 })
+  }
+
+  // 📊 /aujourdhui — récap de la journée.
+  if (msgText.startsWith("/aujourd")) {
+    if (fromAdmin) await sendDayStats(msg.chat.id).catch(() => {})
     return new Response("ok", { status: 200 })
   }
 
@@ -133,7 +174,11 @@ export async function POST(req: Request) {
   // ✅ Confirmation de l'expédition du jour (bouton de /colis) — action GLOBALE, réservée au
   // canal admin → traitée avant le chargement d'une commande.
   if (action === "dobatch") {
-    if (ADMIN_CHAT && String(cb.message?.chat?.id) === ADMIN_CHAT) {
+    const cbFromAdmin =
+      ADMIN_CHAT &&
+      String(cb.message?.chat?.id) === ADMIN_CHAT &&
+      (!ADMIN_USER || String(cb.from?.id) === ADMIN_USER)
+    if (cbFromAdmin) {
       // 🔒 Verrou anti-double-clic : un seul lot peut être lancé toutes les 2 min
       // (évite un double paiement si on tape deux fois sur le bouton).
       const lock = await redis.set("batch:lock", "1", { nx: true, ex: 120 })
@@ -188,22 +233,6 @@ export async function POST(req: Request) {
           await refreshCustomerMessage(updated)
         }
         await answer("Paiement validé 💳 — à expédier")
-        break
-      }
-      case "gen": {
-        // Met la commande « en génération » + la pousse dans la file que le VEILLEUR
-        // local surveille → il lancera le robot Colissimo sur la machine.
-        if (order.status === "generating") {
-          await answer("Génération déjà demandée…", true)
-          break
-        }
-        const updated = await updateOrder(ref, { status: "generating" })
-        await redis.rpush("robot:queue", ref)
-        if (updated) {
-          await refreshOrderMessage(updated)
-          await refreshCustomerMessage(updated)
-        }
-        await answer("Génération du bordereau lancée ⚗️ — le robot va s'ouvrir sur ta machine.")
         break
       }
       case "cancel":

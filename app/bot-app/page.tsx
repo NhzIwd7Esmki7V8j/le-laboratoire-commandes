@@ -491,29 +491,20 @@ function DetailView({
               </button>
             </>
           )}
-          {order.status === "paid" && (
-            <>
-              <button
-                onClick={onGenerate}
-                disabled={busy}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 py-3 font-semibold text-white disabled:opacity-60"
-              >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Beaker className="h-4 w-4" />}
-                ⚗️ Générer le bordereau
-              </button>
-            </>
+          {(order.status === "paid" || order.status === "in_cart") && (
+            <div className="w-full rounded-xl bg-violet-50 py-3 px-3 text-center text-sm font-medium text-violet-700">
+              {order.status === "in_cart" ? "🛒 Déjà au panier." : "📦 À expédier."} Lance l'envoi du jour avec <b>/colis</b> dans le canal.
+            </div>
           )}
           {order.status === "generating" && (
             <div className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-50 py-3 text-sm font-medium text-sky-700">
-              <Loader2 className="h-4 w-4 animate-spin" /> Génération en cours…
+              <Loader2 className="h-4 w-4 animate-spin" /> Traitement en cours…
             </div>
           )}
           {order.status === "label_generated" && (
-            <>
-              <button onClick={onDownload} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 font-semibold text-white">
-                <FileText className="h-4 w-4" /> 📄 Télécharger le PDF
-              </button>
-            </>
+            <div className="w-full rounded-xl bg-emerald-50 py-3 px-3 text-center text-sm font-medium text-emerald-700">
+              🚀 Expédiée — le bordereau est rangé sur le Google Drive.
+            </div>
           )}
         </div>
       </div>

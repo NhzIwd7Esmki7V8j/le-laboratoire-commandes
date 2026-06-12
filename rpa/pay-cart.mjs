@@ -93,6 +93,15 @@ async function postShipped(order, filePath, tn) {
   return r.ok
 }
 
+// Change le statut d'une commande (JSON) — sert au verrou anti-re-paiement après paiement.
+async function setStatus(ref, status) {
+  await fetch(`${APP}/api/rpa/shipped`, {
+    method: "POST",
+    headers: { "x-robot-key": KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ ref, status }),
+  }).catch(() => {})
+}
+
 // ── CVV (iframe Scellius/Lyra : vraies frappes, pas fill()). ──
 async function fillCVV(page, cvv) {
   for (const fr of page.frames()) {
@@ -165,6 +174,21 @@ try {
     process.exit(0)
   }
 
+  // ⚠️ Garde anti-mélange : le robot retrouve chaque étiquette par le NOM affiché dans l'espace
+  // client (nom client en domicile, nom du RELAIS en point relais). Si deux colis du lot ont le
+  // MÊME nom affiché (2 colis au même relais, ou 2 homonymes), il ne peut pas les distinguer →
+  // on PRÉVIENT l'admin pour qu'il vérifie ces étiquettes à la main (au lieu de risquer un mélange).
+  const whoOf = (o) =>
+    o.deliveryMode === "relais" && o.pays === "FR" && o.pointRelais
+      ? o.pointRelais.split(" — ")[0].trim()
+      : `${o.prenom} ${o.nom}`.replace(/\s+/g, " ").trim()
+  const whos = orders.map(whoOf)
+  const dups = [...new Set(whos.filter((w, i) => whos.indexOf(w) !== i))]
+  if (dups.length) {
+    console.log(`⚠️ Destinataires en double dans le lot : ${dups.join(", ")} — étiquettes à vérifier à la main.`)
+    await sendAlert(`destinataires en double dans le lot (${dups.join(", ")}) — vérifie ces étiquettes à la main`, false)
+  }
+
   // ── 1) Récapitulatif colis → « Accéder au panier » → (login) → « Valider mon panier » → paiement ──
   log("Ouverture du panier…")
   await page.goto("https://www.laposte.fr/colissimo-en-ligne/panier", { waitUntil: "domcontentloaded" })
@@ -229,6 +253,10 @@ try {
     process.exit(1)
   }
   console.log(`\n💳 Panier payé (${amount} €). Valide la 3-D Secure si demandée…`)
+  // 🔒 ANTI-RE-PAIEMENT : dès que le panier est payé, on sort les commandes de « in_cart »
+  // (→ generating). Ainsi, si pay-cart plante ensuite et qu'on relance « pay », listInCart()
+  // est vide → AUCUN nouveau paiement. Le téléchargement des étiquettes suit juste après.
+  for (const o of orders) await setStatus(o.ref, "generating")
   await page.waitForTimeout(9000) // laisse La Poste finaliser + créer les colis
 
   // ── 3) Récupérer l'étiquette de chaque commande dans l'espace client ──
