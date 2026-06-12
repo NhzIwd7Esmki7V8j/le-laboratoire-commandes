@@ -43,6 +43,7 @@ const REAL =
 // Étape courante du parcours (pour situer un éventuel blocage dans l'alerte).
 let step = "démarrage"
 let hasPaid = false
+let alerted = false // une alerte Telegram a déjà été envoyée pour cet incident (dédoublonnage)
 
 async function fetchOrder(ref) {
   const url = env.UPSTASH_REDIS_REST_URL
@@ -71,6 +72,19 @@ const ctx = await chromium.launchPersistentContext(join(__dirname, ".chromium"),
   args: launchArgs,
 })
 ctx.setDefaultTimeout(22000) // marge pour les chargements lents de laposte.fr (réduit la flakiness)
+
+// 🛡️ Garde-fou anti-blocage (mode réel) : si le robot dépasse un temps anormal, c'est qu'il est
+// coincé sur un écran imprévu → on alerte et on FORCE la sortie, pour ne JAMAIS laisser le
+// veilleur bloqué sur une commande. .unref() : ne retarde pas une sortie normale plus tôt.
+if (REAL) {
+  const WATCHDOG_MIN = 12
+  setTimeout(async () => {
+    console.error(`\n⏱️ Garde-fou : ${WATCHDOG_MIN} min dépassées (étape : ${step}) — sortie forcée.`)
+    await sendAlert(step, `bloqué > ${WATCHDOG_MIN} min`, !hasPaid).catch(() => {})
+    await ctx.close().catch(() => {})
+    process.exit(1)
+  }, WATCHDOG_MIN * 60 * 1000).unref()
+}
 const page = ctx.pages()[0] ?? (await ctx.newPage())
 
 // ── Capture post-paiement : l'étiquette téléchargée est transmise à l'app, qui la
@@ -140,19 +154,15 @@ async function sendAlert(atStep, errMsg, reset = true) {
   if (!REAL || !KEY) return
   const ALERT = (env.APP_URL || "http://localhost:3000").replace(/\/+$/, "") + "/api/rpa/alert"
   try {
-    const shot = join(__dirname, `error-${order.ref}.png`)
-    await page.screenshot({ path: shot, fullPage: true }).catch(() => {})
+    // Alerte COURTE : juste la réf + si on peut re-générer (reset). Pas de capture ni de détail
+    // technique — le canal admin n'affiche qu'un message d'action. (step/error gardés pour les logs.)
     const fd = new FormData()
     fd.append("ref", order.ref)
     fd.append("step", atStep || step || "")
     fd.append("error", String(errMsg || "").slice(0, 300))
     fd.append("reset", reset ? "1" : "0")
-    try {
-      fd.append("photo", new Blob([readFileSync(shot)], { type: "image/png" }), `error-${order.ref}.png`)
-    } catch {
-      /* pas de capture → alerte texte seule */
-    }
     await fetch(ALERT, { method: "POST", headers: { "x-robot-key": KEY }, body: fd })
+    alerted = true // évite d'envoyer une 2e alerte pour le même incident en fin de run
     console.log("  📨 Alerte Telegram envoyée à l'admin.")
   } catch (e) {
     console.log("  ⚠️ Alerte Telegram échouée: " + (e?.message ?? e))
@@ -283,22 +293,51 @@ async function clickNext(fromRe, toRe, { tries = 4, settle = 800 } = {}) {
 }
 
 // Connexion La Poste automatique : détecte le formulaire de connexion (champ #username
-// OU URL moncompte) où qu'il apparaisse, le remplit et continue. Verrou atomique
-// (loggingIn posé AVANT le 1er await) pour ne jamais se connecter deux fois en parallèle.
+// OU URL moncompte) où qu'il apparaisse, le remplit, RÉESSAIE et VÉRIFIE le succès.
+// Verrou atomique (loggingIn posé AVANT le 1er await) pour ne jamais se connecter en double.
+// `loginBlocked` passe à true si la connexion est définitivement impossible (2FA / captcha /
+// identifiants) → le flux principal l'utilise pour alerter clairement au lieu de planter.
 let loggingIn = false
+let loginBlocked = false
+// Sommes-nous (encore) sur l'écran de connexion La Poste ?
+async function onLoginScreen() {
+  return (
+    (await page.locator("#username").first().isVisible({ timeout: 1500 }).catch(() => false)) ||
+    page.url().includes("moncompte.laposte.fr")
+  )
+}
 async function loginIfNeeded() {
   if (loggingIn || !env.LAPOSTE_EMAIL || !env.LAPOSTE_PASSWORD) return false
+  if (!(await onLoginScreen())) return false
   loggingIn = true
   try {
-    const hasForm = await page.locator("#username").first().isVisible({ timeout: 2500 }).catch(() => false)
-    if (!hasForm && !page.url().includes("moncompte.laposte.fr")) return false
-    log("Connexion La Poste automatique…")
-    await fill("#username", env.LAPOSTE_EMAIL)
-    await fill("#password", env.LAPOSTE_PASSWORD)
-    await maybe("#rememberMe", { timeout: 2000 }) // « Rester connecté »
-    await maybe("#submit-button", { timeout: 6000 })
-    await page.waitForTimeout(5000)
-    return true
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      log(`Connexion La Poste automatique… (tentative ${attempt}/3)`)
+      await fill("#username", env.LAPOSTE_EMAIL).catch(() => {})
+      await fill("#password", env.LAPOSTE_PASSWORD).catch(() => {})
+      await maybe("#rememberMe", { timeout: 2000 }) // « Rester connecté » → session longue
+      await maybe("#submit-button", { timeout: 6000 })
+      // VÉRIFIE le succès : on doit QUITTER l'écran de connexion (retour sur laposte.fr,
+      // formulaire #username disparu). Sinon on réessaie.
+      const ok = await page
+        .waitForFunction(
+          () => !location.href.includes("moncompte.laposte.fr") && !document.querySelector("#username"),
+          null,
+          { timeout: 15000 },
+        )
+        .then(() => true)
+        .catch(() => false)
+      if (ok) {
+        log("  ✓ Connecté à La Poste.")
+        await page.waitForTimeout(2000)
+        return true
+      }
+      await page.waitForTimeout(2500) // submit pas encore pris ou vérification en cours → on retente
+    }
+    // Toujours bloqué après 3 essais → 2FA / captcha / identifiants. On le signale au flux.
+    loginBlocked = true
+    log("  ⛔ Connexion La Poste impossible (vérification 2FA, captcha ou identifiants ?).")
+    return false
   } finally {
     loggingIn = false
   }
@@ -624,6 +663,18 @@ try {
     await goStep(/checkout\/paiement/, { settle: 1500, timeout: 12000 })
     await loginIfNeeded() // ou ici, selon le moment où La Poste redemande la connexion
 
+    // Connexion définitivement impossible (2FA / captcha / identifiants) → on NE tente PAS de
+    // payer déconnecté : on alerte clairement et on sort proprement (Générer reste relançable).
+    if (loginBlocked && REAL) {
+      await sendAlert(
+        "connexion La Poste",
+        "Connexion La Poste impossible (vérification 2FA, captcha, ou identifiants à revoir). Reconnecte-toi à la main dans le navigateur du robot, puis relance « Générer ».",
+        true,
+      )
+      await ctx.close().catch(() => {})
+      process.exit(1)
+    }
+
     // ── MODE AUDIT : on doit être sur la page de paiement. On vérifie, on capture,
     // on VIDE le panier (Tout supprimer) et on quitte SANS jamais payer.
     // 🔒 SÉCURITÉ : ce mode vide le panier → STRICTEMENT réservé aux réfs de TEST (AUD_).
@@ -781,9 +832,8 @@ try {
 } catch (e) {
   const msg = e?.message?.split("\n")[0]
   console.error(`\n⚠️ Arrêt sur un écran inattendu (étape : ${step}) :`, msg)
-  await page.screenshot({ path: join(__dirname, `error-${order.ref}.png`), fullPage: true }).catch(() => {})
-  // Alerte l'admin sur Telegram (capture + étape). reset = true si on n'a PAS encore payé.
-  await sendAlert(step, msg, !hasPaid)
+  // Alerte courte l'admin sur Telegram. reset = true si on n'a PAS encore payé.
+  if (!alerted) await sendAlert(step, msg, !hasPaid)
   // On ferme et on quitte proprement (l'admin a reçu l'alerte + peut relancer « Générer »).
   // Évite de laisser un navigateur zombie qui bloquerait le veilleur / les tests.
   await ctx.close().catch(() => {})
@@ -794,7 +844,30 @@ if (TEST) {
   await ctx.close().catch(() => {})
   process.exit(0)
 }
-// La fenêtre reste ouverte jusqu'à ce que l'utilisateur la ferme.
+
+// ── Sortie ──────────────────────────────────────────────────────────────────
+// MODE RÉEL (autonome) : on ne laisse JAMAIS la fenêtre ouverte à attendre une fermeture
+// manuelle (sinon le veilleur resterait bloqué sur le serveur). Si on arrive ici sans avoir
+// traité l'étiquette, c'est qu'un blocage est survenu (le « Payer » n'a pas pris, etc.).
+if (REAL) {
+  if (!labelHandled) {
+    if (hasPaid) {
+      // Payé mais étiquette non récupérée → SURTOUT ne pas réactiver « Générer » (risque de
+      // re-paiement). On signale une récupération manuelle (reset=false), sans toucher au statut.
+      console.log("⚠️ Payé mais étiquette non récupérée — récupération manuelle (PAS de re-paiement).")
+      if (!alerted) await sendAlert(step, "payé mais étiquette non récupérée", false)
+    } else {
+      // Pas payé → on remet « à expédier » pour pouvoir relancer « Générer ».
+      console.log("ℹ️ Fin sans paiement → commande remise en « à expédier ».")
+      if (!alerted) await sendAlert(step, "robot arrêté avant paiement", true)
+      await setStatus("paid")
+    }
+  }
+  await ctx.close().catch(() => {})
+  process.exit(labelHandled ? 0 : 1)
+}
+
+// MODE MANUEL (run local sans autopay) : on laisse la fenêtre ouverte pour finir à la main.
 await new Promise((resolve) => ctx.on("close", resolve))
 // Fermée sans avoir traité l'étiquette (pas payé / abandon) → on remet la commande
 // en "paid" pour que le bouton « Générer le bordereau » réapparaisse dans Telegram.
