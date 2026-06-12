@@ -11,7 +11,7 @@ const secret = process.env.TELEGRAM_WEBHOOK_SECRET
 const ADMIN_CHAT = process.env.TELEGRAM_CHAT_ID
 const ADMIN_USER = process.env.ADMIN_TELEGRAM_USER_ID
 
-// 📦 /commandes_du_jour — expédie TOUTES les commandes payées en une fois :
+// 📦 /colis — expédie TOUTES les commandes payées en une fois :
 // chaque colis est ajouté au panier (robot), puis tout est payé en un seul paiement,
 // déposé sur le Drive, et le numéro de suivi est envoyé à chaque client.
 async function handleDayBatch(chatId: number): Promise<void> {
@@ -78,9 +78,9 @@ export async function POST(req: Request) {
   const msg = update?.message || update?.channel_post
   const msgText = typeof msg?.text === "string" ? msg.text.trim() : ""
 
-  // 📦 Commande ADMIN : /commandes_du_jour — acceptée depuis le canal admin OU en message
+  // 📦 Commande ADMIN : /colis — acceptée depuis le canal admin OU en message
   // direct par le compte admin (les deux cas, selon où tu la tapes).
-  if (msgText.startsWith("/commandes_du_jour")) {
+  if (msgText.startsWith("/colis")) {
     const fromAdminChat = ADMIN_CHAT && String(msg?.chat?.id) === ADMIN_CHAT
     const fromAdminUser = ADMIN_USER && String(msg?.from?.id) === ADMIN_USER
     if (fromAdminChat || fromAdminUser || (!ADMIN_CHAT && !ADMIN_USER)) {
