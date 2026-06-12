@@ -23,7 +23,6 @@ import {
   Clock,
   Globe,
 } from "lucide-react"
-import { submitOrder } from "@/app/actions/order"
 import { ContactModal } from "@/components/contact-modal"
 import { RelayPicker, type SelectedRelay } from "@/components/relay-picker"
 
@@ -220,7 +219,18 @@ export function OrderSection() {
     setStatus("loading")
 
     try {
-      const result = await submitOrder({ ...form, deliveryMode, email: mail })
+      // Appel via une vraie route API (fetch) — fiable sur Cloudflare, contrairement aux
+      // Server Actions (qui réussissaient côté serveur mais renvoyaient une erreur au client).
+      const res = await fetch("/api/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, deliveryMode, email: mail }),
+      })
+      const result = (await res.json().catch(() => ({ success: false, error: "Réponse invalide du serveur." }))) as {
+        success: boolean
+        orderRef?: string
+        error?: string
+      }
 
       if (result.success) {
         setOrderRef(result.orderRef ?? "")
