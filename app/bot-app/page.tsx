@@ -20,7 +20,7 @@ import {
 } from "lucide-react"
 
 // ── Types (sous-ensemble du modèle serveur) ─────────────────────────────────
-type OrderStatus = "pending" | "accepted" | "paid" | "generating" | "label_generated" | "cancelled"
+type OrderStatus = "pending" | "accepted" | "paid" | "in_cart" | "generating" | "label_generated" | "cancelled"
 interface Order {
   ref: string
   status: OrderStatus
@@ -45,6 +45,7 @@ const STATUS: Record<OrderStatus, { label: string; emoji: string; cls: string }>
   pending: { label: "En attente", emoji: "⏳", cls: "bg-amber-100 text-amber-700 border-amber-200" },
   accepted: { label: "À payer", emoji: "💳", cls: "bg-violet-100 text-violet-700 border-violet-200" },
   paid: { label: "À expédier", emoji: "📦", cls: "bg-indigo-100 text-indigo-700 border-indigo-200" },
+  in_cart: { label: "Au panier", emoji: "🛒", cls: "bg-violet-100 text-violet-700 border-violet-200" },
   generating: { label: "Génération…", emoji: "🟢", cls: "bg-sky-100 text-sky-700 border-sky-200" },
   label_generated: { label: "Expédiée", emoji: "🚀", cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
   cancelled: { label: "Annulée", emoji: "❌", cls: "bg-rose-100 text-rose-700 border-rose-200" },

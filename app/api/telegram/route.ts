@@ -134,6 +134,19 @@ export async function POST(req: Request) {
   // canal admin → traitée avant le chargement d'une commande.
   if (action === "dobatch") {
     if (ADMIN_CHAT && String(cb.message?.chat?.id) === ADMIN_CHAT) {
+      // 🔒 Verrou anti-double-clic : un seul lot peut être lancé toutes les 2 min
+      // (évite un double paiement si on tape deux fois sur le bouton).
+      const lock = await redis.set("batch:lock", "1", { nx: true, ex: 120 })
+      if (lock === null) {
+        await answer("Lot déjà lancé à l'instant ⏳ — attends qu'il finisse.", true)
+        return new Response("ok", { status: 200 })
+      }
+      // Retire le bouton du message pour qu'on ne puisse plus re-cliquer.
+      await tg("editMessageReplyMarkup", {
+        chat_id: cb.message.chat.id,
+        message_id: cb.message.message_id,
+        reply_markup: { inline_keyboard: [] },
+      }).catch(() => {})
       await handleDayBatch(cb.message.chat.id).catch(() => {})
       await answer("Expédition lancée 📦")
     } else {

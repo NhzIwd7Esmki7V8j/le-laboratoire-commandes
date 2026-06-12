@@ -72,6 +72,9 @@ async function extractTracking(filePath) {
     if (human) return { tn: human[0].replace(/\s+/g, ""), text }
     const intl = text.match(/[A-Z]{2}(?:\s?\d){9}\s?[A-Z]{2}/)
     if (intl) return { tn: intl[0].replace(/\s+/g, ""), text }
+    // Fallback : motif compact (avec espaces éventuels entre chiffres), comme colissimo.mjs.
+    const compact = (text.match(/\d[A-Z](?:\s*\d){11}/g) || []).map((m) => m.replace(/\s+/g, ""))
+    if (compact.length) return { tn: compact[0], text }
     return { tn: "", text }
   } catch {
     return { tn: "", text: "" }

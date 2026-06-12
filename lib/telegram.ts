@@ -312,7 +312,7 @@ export function orderButtons(order: Order): { inline_keyboard: InlineButton[][] 
       break
     case "paid":
       // Plus de bouton par commande : l'expédition de TOUTES les commandes payées se déclenche
-      // d'un coup via la commande « /commandes_du_jour » (paiement groupé + Drive + suivis).
+      // d'un coup via la commande « /colis » (paiement groupé + Drive + suivis).
       break
     case "in_cart":
       break // colis au panier groupé (état transitoire pendant le traitement du lot)
