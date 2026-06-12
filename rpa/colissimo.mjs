@@ -415,8 +415,24 @@ try {
   // Dépôt « en boîte aux lettres » (D_BAL) : c'est le seul mode qui garde TOUTES les
   // livraisons disponibles, dont « En point de retrait » (le point de contact la désactive).
   step = "départ (expéditeur)"
-  // Attend que le formulaire Départ soit réellement rendu (laposte.fr peut être lent) avant d'agir.
-  await page.locator('label[for="card-input-id-D_BAL"]').waitFor({ state: "visible", timeout: 20000 }).catch(() => {})
+  // L'adresse expéditeur peut échouer à charger (erreur TRANSITOIRE de La Poste) → le dépôt
+  // « boîte aux lettres » (D_BAL) devient alors indisponible/désactivé. On garde D_BAL coûte que
+  // coûte car c'est le seul mode qui laisse le POINT RELAIS dispo (D_BP le désactive) — et on
+  // peut quand même déposer au bureau de poste. Donc si D_BAL n'est pas sélectionnable, on
+  // RECHARGE l'étape et on réessaie : l'erreur transitoire disparaît au refresh.
+  let depOk = false
+  for (let i = 0; i < 4 && !depOk; i++) {
+    await page.locator('label[for="card-input-id-D_BAL"]').waitFor({ state: "visible", timeout: 15000 }).catch(() => {})
+    const balDisabled = await page.locator("#card-input-id-D_BAL").isDisabled().catch(() => true)
+    if (balDisabled) {
+      log(`Adresse expéditeur / dépôt boîte aux lettres indisponible (tentative ${i + 1}/4) → rechargement…`)
+      await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {})
+      await page.waitForTimeout(4500)
+      continue
+    }
+    depOk = true
+  }
+  if (!depOk) throw new Error("Adresse d'expédition indisponible (erreur La Poste transitoire) — relance « Générer ».")
   // Tél expéditeur : best-effort (le compte La Poste l'a déjà) → ne doit jamais bloquer le run.
   if (env.SENDER_PHONE) await fill("#phone", env.SENDER_PHONE).catch(() => {})
   await maybe('label[for="card-input-id-D_BAL"]', { timeout: 6000, force: true })
@@ -513,7 +529,9 @@ try {
 
     // ── MODE AUDIT : on doit être sur la page de paiement. On vérifie, on capture,
     // on VIDE le panier (Tout supprimer) et on quitte SANS jamais payer.
-    if (process.env.RPA_AUDIT === "1") {
+    // 🔒 SÉCURITÉ : ce mode vide le panier → STRICTEMENT réservé aux réfs de TEST (AUD_).
+    // Sur une vraie commande client (CMD_), on refuse : jamais de suppression de colis réel.
+    if (process.env.RPA_AUDIT === "1" && /^AUD_/i.test(order.ref)) {
       await page.waitForTimeout(1200)
       const onPay = /checkout\/paiement/i.test(page.url())
       await page.screenshot({ path: join(__dirname, `audit-${order.ref}.png`), fullPage: true }).catch(() => {})
