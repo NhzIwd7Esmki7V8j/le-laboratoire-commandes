@@ -60,7 +60,10 @@ export async function submitOrder(data: OrderInput) {
           : "Numéro de téléphone invalide (10 chiffres, ex : 06 12 34 56 78).",
     }
   }
-  if (email && !emailRegex.test(email)) {
+  if (!email) {
+    return { success: false, error: "L'adresse email est obligatoire (le client reçoit son suivi par email)." }
+  }
+  if (!emailRegex.test(email)) {
     return { success: false, error: "L'adresse email saisie n'est pas valide." }
   }
   if (message.length < 3) {

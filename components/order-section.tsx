@@ -37,8 +37,6 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const CP_REGEX_FR = /^\d{5}$/
 const CP_REGEX_BE = /^\d{4}$/
 
-// Bot Telegram de SUIVI client (pour le lien « Recevoir mon suivi »)
-const BOT_USERNAME = process.env.NEXT_PUBLIC_TRACKING_BOT_USERNAME || "labo_num_suivi_bot"
 
 type Field = "nom" | "prenom" | "adresse" | "telephone" | "codePostal" | "ville" | "pointRelais" | "message"
 type DeliveryMode = "domicile" | "relais"
@@ -193,9 +191,15 @@ export function OrderSection() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMsg("")
-    // Email optionnel : on ne valide que s'il est rempli (sinon on laisse passer).
+    // Email OBLIGATOIRE : c'est par là que le client reçoit son suivi (notifications La Poste).
     const mail = email.trim()
-    if (mail && !EMAIL_REGEX.test(mail)) {
+    if (!mail) {
+      setEmailError("Email obligatoire (le client reçoit son suivi par email).")
+      setStatus("error")
+      setErrorMsg("L'adresse email du destinataire est obligatoire.")
+      return
+    }
+    if (!EMAIL_REGEX.test(mail)) {
       setEmailError("Email invalide (ex : prenom@mail.com).")
       setStatus("error")
       setErrorMsg("L'adresse email saisie n'est pas valide.")
@@ -290,24 +294,13 @@ export function OrderSection() {
                     <span className="text-[11px] text-violet-400">Conservez-le pour le suivi</span>
                   </div>
                 )}
-                {orderRef && (
-                  <div className="mb-6">
-                    <a
-                      href={`https://t.me/${BOT_USERNAME}?start=${orderRef}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-5 py-3 font-semibold text-white shadow-lg shadow-sky-500/25 transition-all duration-300 hover:scale-105 hover:bg-sky-600"
-                    >
-                      <Send className="h-5 w-5" />
-                      Recevoir mon suivi sur Telegram
-                    </a>
-                    <p className="mt-2 text-xs font-medium text-slate-600">
-                      👉 <span className="font-semibold text-sky-700">Indispensable</span> pour
-                      recevoir ton numéro de suivi automatiquement : clique, puis appuie sur
-                      « Démarrer ». Sans ça, on ne pourra pas te l&apos;envoyer directement.
-                    </p>
-                  </div>
-                )}
+                <div className="mb-6 mx-auto inline-flex max-w-md items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-left">
+                  <Mail className="mt-0.5 h-5 w-5 shrink-0 text-sky-500" />
+                  <p className="text-sm text-slate-600">
+                    Tu recevras ton <span className="font-semibold text-slate-800">numéro de suivi par email</span> dès
+                    l&apos;expédition de ton colis (pense à vérifier tes spams).
+                  </p>
+                </div>
                 <p className="text-slate-600 mb-6 max-w-md mx-auto">
                   Merci de votre confiance. Votre commande est enregistrée et{" "}
                   <span className="font-semibold text-slate-800">en attente de paiement</span>.
@@ -600,7 +593,7 @@ export function OrderSection() {
                 <div className="space-y-2">
                   <Label htmlFor="email" className="flex items-center gap-1.5 text-slate-700">
                     <Mail className="h-4 w-4 text-violet-500" />
-                    Email <span className="text-xs font-normal text-slate-400">(recommandé)</span>
+                    Email
                   </Label>
                   <Input
                     id="email"

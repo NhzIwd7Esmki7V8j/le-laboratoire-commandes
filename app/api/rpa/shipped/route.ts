@@ -7,16 +7,7 @@
 //  - JSON { ref, status } → simple changement de statut (ex. robot fermé sans payer →
 //    on remet la commande en "paid" pour réafficher le bouton « Générer »).
 import { updateOrder, type OrderStatus } from "@/lib/orders"
-import {
-  refreshOrderMessage,
-  refreshCustomerMessage,
-  notifyCustomerMessage,
-  deleteCustomerMessage,
-  sendLabelToChannel,
-  deleteChannelMessage,
-  sendAdminAlert,
-  escapeHtml,
-} from "@/lib/telegram"
+import { refreshOrderMessage, sendLabelToChannel, deleteChannelMessage } from "@/lib/telegram"
 
 const ALLOWED: OrderStatus[] = ["pending", "accepted", "paid", "generating", "label_generated", "cancelled"]
 
@@ -56,30 +47,8 @@ export async function POST(req: Request) {
       await refreshOrderMessage(updated)
     }
 
-    // Notifie le client de l'expédition + n° de suivi.
-    if (updated.customerChatId) {
-      // Le client a activé son suivi → NOUVEAU message (= vraie notification/ping), puis on
-      // supprime l'ancien message « en attente » pour ne pas laisser de doublon.
-      const newId = await notifyCustomerMessage(updated)
-      if (newId) {
-        if (updated.customerMessageId && updated.customerMessageId !== newId) {
-          await deleteCustomerMessage(updated.customerChatId, updated.customerMessageId)
-        }
-        await updateOrder(ref, { customerMessageId: newId })
-      } else {
-        await refreshCustomerMessage(updated) // envoi KO → au moins éditer l'existant
-      }
-    } else {
-      // Le client n'a JAMAIS activé son suivi (Telegram interdit au bot de l'écrire en premier).
-      // → On prévient l'ADMIN dans le canal pour qu'il relaie le n° de suivi à la main.
-      const tn = updated.trackingNumber ? escapeHtml(updated.trackingNumber) : "—"
-      const tel = updated.telephone ? escapeHtml(updated.telephone) : "?"
-      await sendAdminAlert(
-        updated,
-        `📦 <b>${escapeHtml(ref)} expédiée</b> — suivi <b>${tn}</b>.\n` +
-          `⚠️ Le client n'a pas activé son suivi Telegram → relaie-lui le numéro à la main (📞 ${tel}).`,
-      )
-    }
+    // Le CLIENT est notifié de son suivi directement par La Poste (email/SMS du destinataire
+    // renseigné à la commande) → plus besoin de le prévenir nous-mêmes sur Telegram.
     return Response.json({ ok: true, ref, status: updated.status, trackingNumber: updated.trackingNumber ?? null })
   }
 
@@ -93,7 +62,6 @@ export async function POST(req: Request) {
   const updated = await updateOrder(ref, { status })
   if (!updated) return new Response("Commande introuvable", { status: 404 })
   await refreshOrderMessage(updated)
-  await refreshCustomerMessage(updated)
   return Response.json({ ok: true, ref, status: updated.status })
 }
 
