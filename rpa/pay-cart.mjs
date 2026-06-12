@@ -174,20 +174,6 @@ try {
     process.exit(0)
   }
 
-  // ⚠️ Garde anti-mélange : le robot retrouve chaque étiquette par le NOM affiché dans l'espace
-  // client (nom client en domicile, nom du RELAIS en point relais). Si deux colis du lot ont le
-  // MÊME nom affiché (2 colis au même relais, ou 2 homonymes), il ne peut pas les distinguer →
-  // on PRÉVIENT l'admin pour qu'il vérifie ces étiquettes à la main (au lieu de risquer un mélange).
-  const whoOf = (o) =>
-    o.deliveryMode === "relais" && o.pays === "FR" && o.pointRelais
-      ? o.pointRelais.split(" — ")[0].trim()
-      : `${o.prenom} ${o.nom}`.replace(/\s+/g, " ").trim()
-  const whos = orders.map(whoOf)
-  const dups = [...new Set(whos.filter((w, i) => whos.indexOf(w) !== i))]
-  if (dups.length) {
-    console.log(`⚠️ Destinataires en double dans le lot : ${dups.join(", ")} — étiquettes à vérifier à la main.`)
-    await sendAlert(`destinataires en double dans le lot (${dups.join(", ")}) — vérifie ces étiquettes à la main`, false)
-  }
 
   // ── 1) Récapitulatif colis → « Accéder au panier » → (login) → « Valider mon panier » → paiement ──
   log("Ouverture du panier…")
@@ -259,14 +245,19 @@ try {
   for (const o of orders) await setStatus(o.ref, "generating")
   await page.waitForTimeout(9000) // laisse La Poste finaliser + créer les colis
 
-  // ── 3) Récupérer l'étiquette de chaque commande dans l'espace client ──
+  // ── 3) Récupérer les N étiquettes (= les N colis les PLUS RÉCENTS de l'espace client, ceux
+  //        qu'on vient de payer), lire chaque PDF, et relier chacun à SA commande par le
+  //        TÉLÉPHONE du client (présent sur l'étiquette, unique même pour 2 colis au même relais)
+  //        + le nom. → plus aucun risque de mélange d'étiquettes.
   let okCount = 0
-  for (const order of orders) {
-    const who =
-      order.deliveryMode === "relais" && order.pays === "FR" && order.pointRelais
-        ? order.pointRelais.split(" — ")[0].trim()
-        : `${order.prenom} ${order.nom}`.replace(/\s+/g, " ").trim()
-    const pdfPath = join(__dirname, `bordereau-${order.ref}.pdf`)
+  const N = orders.length
+  const unmatched = new Map(orders.map((o) => [o.ref, o])) // commandes pas encore appariées
+  // « 0612345678 » → « 612345678 » (sans l'indicatif 0) ; sur l'étiquette le tél s'affiche
+  // « +33612345678 » → ses chiffres contiennent « 612345678 ».
+  const phoneTail = (s) => (s || "").replace(/\D/g, "").replace(/^0/, "")
+
+  for (let i = 0; i < N && unmatched.size; i++) {
+    const pdfPath = join(__dirname, `batch-${i}.pdf`)
     let downloaded = false
     const onDl = async (d) => {
       try {
@@ -277,10 +268,10 @@ try {
       }
     }
     page.on("download", onDl)
-    for (let i = 0; i < 8 && !downloaded; i++) {
+    for (let t = 0; t < 6 && !downloaded; t++) {
       await page.goto("https://www.laposte.fr/espaceclient/", { waitUntil: "domcontentloaded" }).catch(() => {})
       await page.waitForTimeout(3500)
-      const card = page.locator(`button:has-text("Colis - ${who}"), a:has-text("Colis - ${who}")`).first()
+      const card = page.locator('button:has-text("Colis - "), a:has-text("Colis - ")').nth(i)
       if (!(await card.isVisible({ timeout: 3000 }).catch(() => false))) {
         await page.waitForTimeout(4000)
         continue
@@ -294,29 +285,52 @@ try {
       }
     }
     page.off("download", onDl)
-
     if (!downloaded) {
-      console.log(`  ✗ ${order.ref} (${who}) : étiquette introuvable.`)
-      await sendAlert(`${order.ref} payé mais étiquette introuvable — récupère-la à la main`, false)
+      console.log(`  ✗ colis #${i + 1} : téléchargement impossible.`)
       continue
     }
-    // Vérifie nom + code postal avant de poster (jamais une mauvaise étiquette).
+
+    // Lit le PDF et le relie au BON ordre : téléphone (clé unique) + nom.
     const { tn, text } = await extractTracking(pdfPath)
-    const nomOk = !order.nom || norm(text).includes(norm(order.nom))
-    const cpOk = order.deliveryMode === "relais" || !order.codePostal || text.replace(/\s+/g, "").includes(order.codePostal)
-    if (text && !(nomOk && cpOk)) {
-      console.log(`  ⛔ ${order.ref} : l'étiquette téléchargée NE correspond PAS (nom/CP) — non postée.`)
-      await sendAlert(`${order.ref} : étiquette ne correspond pas (nom/CP) — vérifie à la main`, false)
+    const digits = (text || "").replace(/\D/g, "")
+    let match = null
+    for (const o of unmatched.values()) {
+      const tail = phoneTail(o.telephone)
+      if (tail.length >= 6 && digits.includes(tail) && (!o.nom || norm(text).includes(norm(o.nom)))) {
+        match = o
+        break
+      }
+    }
+    // Repli (étiquette sans tél lisible) : nom + CP en domicile, nom seul en relais.
+    if (!match) {
+      for (const o of unmatched.values()) {
+        const nomOk = norm(text).includes(norm(o.nom)) && norm(text).includes(norm(o.prenom))
+        const cpOk = o.deliveryMode === "relais" || !o.codePostal || text.replace(/\s+/g, "").includes(o.codePostal)
+        if (nomOk && cpOk) {
+          match = o
+          break
+        }
+      }
+    }
+    if (!match) {
+      console.log(`  ⚠️ colis #${i + 1} (suivi ${tn || "?"}) : non associé à une commande.`)
+      await sendAlert(`une étiquette du lot (suivi ${tn || "?"}) n'a pas pu être reliée à une commande — vérifie à la main`, false)
       continue
     }
-    const posted = await postShipped(order, pdfPath, tn)
-    console.log(posted ? `  ✓ ${order.ref} — expédiée (suivi: ${tn || "?"})` : `  ⚠️ ${order.ref} — /shipped a échoué`)
+    const posted = await postShipped(match, pdfPath, tn)
+    console.log(posted ? `  ✓ ${match.ref} — ${match.prenom} ${match.nom} (suivi: ${tn || "?"})` : `  ⚠️ ${match.ref} — /shipped a échoué`)
     if (posted) {
       okCount++
-      await uploadLabelToDrive(order, pdfPath, tn) // ☁️ dépôt Drive + ligne Sheet (best-effort)
+      await uploadLabelToDrive(match, pdfPath, tn) // ☁️ dépôt Drive + ligne Sheet (best-effort)
     }
+    unmatched.delete(match.ref)
   }
 
+  // Commandes payées mais dont l'étiquette n'a pas été récupérée → on alerte.
+  for (const o of unmatched.values()) {
+    console.log(`  ✗ ${o.ref} : étiquette non récupérée.`)
+    await sendAlert(`${o.ref} payé mais étiquette non récupérée — récupère-la à la main`, false)
+  }
   console.log(`\n✅ Paiement groupé terminé : ${okCount}/${orders.length} étiquettes postées.`)
   await ctx.close().catch(() => {})
   process.exit(0)
