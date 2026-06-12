@@ -425,7 +425,27 @@ try {
 
   // 3) Arrivée : mode de livraison + destinataire
   step = "arrivée (mode + adresse destinataire)"
-  if (order.deliveryMode === "relais") {
+  // ⚠️ L'international PASSE EN PREMIER : à l'étranger (Belgique), Colissimo ne propose QUE
+  // « Avec signature » (L_CS) — AUCUN point relais hors de France. Donc qu'on ait demandé
+  // relais ou domicile, une commande BE va forcément en livraison à domicile signée.
+  if (order.pays !== "FR") {
+    log(
+      order.deliveryMode === "relais"
+        ? `Mode : international — point relais indisponible en ${order.pays} → livraison à domicile (avec signature)`
+        : "Mode : international (avec signature)",
+    )
+    await maybe('label[for="card-input-id-L_CS"]', { timeout: 6000, force: true })
+    await page.waitForTimeout(1500)
+    await fillRecipient()
+    // International : tél + email destinataire OBLIGATOIRES (notification de livraison).
+    const recMail =
+      order.email ||
+      `${order.prenom}.${order.nom}`.toLowerCase().normalize("NFD").replace(/[^a-z0-9.]/g, "") + "@gmail.com"
+    await fill("#phone", order.telephone)
+    await fill("#email", recMail)
+    await page.waitForTimeout(800)
+    log("Notification destinataire (tél + email) remplie.")
+  } else if (order.deliveryMode === "relais") {
     log("Mode : point de retrait")
     await fillRecipient() // adresse d'abord (sinon la sélection du mode se réinitialise)
     // Sélectionne « En point de retrait » → La Poste assigne AUTO le relais le plus proche
@@ -463,20 +483,6 @@ try {
     await fill("#email", recMail)
     await page.waitForTimeout(1000)
     log("Point de retrait : relais sélectionné + notif destinataire remplie.")
-  } else if (order.pays !== "FR") {
-    // International (Belgique) : un seul mode de livraison proposé → « Avec signature » (L_CS).
-    log("Mode : international (avec signature)")
-    await maybe('label[for="card-input-id-L_CS"]', { timeout: 6000, force: true })
-    await page.waitForTimeout(1500)
-    await fillRecipient()
-    // International : tél + email destinataire OBLIGATOIRES (notification de livraison).
-    const recMail =
-      order.email ||
-      `${order.prenom}.${order.nom}`.toLowerCase().normalize("NFD").replace(/[^a-z0-9.]/g, "") + "@gmail.com"
-    await fill("#phone", order.telephone)
-    await fill("#email", recMail)
-    await page.waitForTimeout(800)
-    log("Notification destinataire (tél + email) remplie.")
   } else {
     log("Mode : domicile (en boîte aux lettres)")
     await maybe('label[for="card-input-id-L_BAL"]', { timeout: 6000, force: true })

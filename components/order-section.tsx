@@ -160,6 +160,9 @@ export function OrderSection() {
     const pays: Country = value === "BE" ? "BE" : "FR"
     setForm((prev) => ({ ...prev, pays, codePostal: "", ville: "" }))
     setErrors((prev) => ({ ...prev, codePostal: undefined, ville: undefined }))
+    // Le point relais Colissimo n'existe PAS en dehors de la France → pour la Belgique,
+    // on bascule de force en livraison à domicile (seul mode possible à l'étranger).
+    if (pays === "BE") setDeliveryMode("domicile")
   }
 
   // Auto-remplissage depuis le picker Point Retrait Colissimo
@@ -425,18 +428,24 @@ export function OrderSection() {
                     <button
                       type="button"
                       onClick={() => switchMode("relais")}
+                      disabled={form.pays === "BE"}
                       aria-pressed={deliveryMode === "relais"}
+                      title={form.pays === "BE" ? "Point retrait disponible uniquement en France" : undefined}
                       className={`flex flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
-                        deliveryMode === "relais"
-                          ? "border-violet-500 bg-violet-50 text-violet-700"
-                          : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                        form.pays === "BE"
+                          ? "cursor-not-allowed border-slate-200 text-slate-300"
+                          : deliveryMode === "relais"
+                            ? "border-violet-500 bg-violet-50 text-violet-700"
+                            : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
                       }`}
                     >
                       <span className="flex items-center gap-2">
                         <Package className="h-4 w-4" />
                         Point retrait
                       </span>
-                      <span className="text-[10px] font-normal opacity-70">Colissimo Point Retrait</span>
+                      <span className="text-[10px] font-normal opacity-70">
+                        {form.pays === "BE" ? "France uniquement" : "Colissimo Point Retrait"}
+                      </span>
                     </button>
                   </div>
                 </div>
