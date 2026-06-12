@@ -87,8 +87,8 @@ export async function sendAdminAlert(
 }
 
 const FLAG: Record<string, string> = { FR: "🇫🇷", BE: "🇧🇪" }
-// Séparateur court : assez fin pour ne pas déborder/wrapper sur mobile.
-const SEP = "━━━━━━━━━━━━"
+// Séparateur court : assez fin pour ne JAMAIS déborder/wrapper sur mobile (petits écrans).
+const SEP = "━━━━━━━━"
 
 function statusFooter(order: Order): string {
   switch (order.status) {
@@ -109,19 +109,23 @@ function statusFooter(order: Order): string {
   }
 }
 
-// Ligne de livraison compacte (1 à 2 lignes selon le mode).
+// Ligne de livraison (le drapeau est sur la 1re ligne, l'adresse sur la/les suivantes pour
+// éviter qu'un drapeau ou un bout d'adresse parte seul à la ligne sur mobile).
 function deliveryLine(order: Order): string {
   const flag = FLAG[order.pays] ?? ""
   if (order.deliveryMode === "relais") {
-    const relais = order.pointRelais ? escapeHtml(order.pointRelais) : "Point Retrait"
-    const id = order.relayId ? ` <i>(#${escapeHtml(order.relayId)})</i>` : ""
-    return `🚚 <i>Colissimo · Point Retrait</i>\n📦 ${relais} ${flag}${id}`
+    // pointRelais = « NOM — adresse, CP VILLE » → on sépare le nom (gras) de l'adresse (italique).
+    const parts = (order.pointRelais || "Point Retrait").split(" — ")
+    const name = escapeHtml(parts[0].trim())
+    const addr = parts.slice(1).join(" — ").trim()
+    return (
+      `🚚 <i>Colissimo · Point Retrait</i> ${flag}\n` +
+      `📦 <b>${name}</b>` +
+      (addr ? `\n📍 <i>${escapeHtml(addr)}</i>` : "")
+    )
   }
-  const addr = [order.adresse, order.codePostal, order.ville]
-    .filter(Boolean)
-    .map((v) => escapeHtml(v!))
-    .join(", ")
-  return `🚚 <i>Colissimo · Domicile</i>\n🏠 ${addr} ${flag}`
+  const addr = [order.adresse, order.codePostal, order.ville].filter(Boolean).map((v) => escapeHtml(v!)).join(", ")
+  return `🚚 <i>Colissimo · Domicile</i> ${flag}\n🏠 ${addr}`
 }
 
 // Rend le message HTML compact d'une commande (en-tête + corps client + footer statut).

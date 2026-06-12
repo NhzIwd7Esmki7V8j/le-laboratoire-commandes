@@ -85,11 +85,11 @@ async function sendDayStats(chatId: number): Promise<void> {
     parse_mode: "HTML",
     text:
       `📊 <b>Aujourd'hui (${dateLabel})</b>\n` +
-      `━━━━━━━━━━\n` +
+      `━━━━━━━━\n` +
       `📥 Reçues : <b>${today.length}</b>\n` +
       `🚀 Expédiées : <b>${nb("label_generated")}</b>\n` +
       `❌ Annulées : <b>${nb("cancelled")}</b>\n` +
-      `━━━━━━━━━━\n` +
+      `━━━━━━━━\n` +
       `📦 <b>À expédier maintenant : ${toShip.length} colis</b> (~${total.toFixed(2)} €)\n` +
       (toShip.length ? `👉 Tape <b>/colis</b> pour tout envoyer.` : `✅ Rien en attente — tout est à jour !`),
   })
@@ -103,7 +103,7 @@ async function sendInfo(chatId: number): Promise<void> {
     disable_web_page_preview: true,
     text:
       `ℹ️ <b>Comment ça marche</b>\n` +
-      `━━━━━━━━━━\n` +
+      `━━━━━━━━\n` +
       `<b>Pour chaque commande qui arrive :</b>\n` +
       `1️⃣ <b>Accepter</b> (ou Refuser)\n` +
       `2️⃣ <b>Payé !</b> quand le client a réglé\n\n` +
@@ -112,7 +112,7 @@ async function sendInfo(chatId: number): Promise<void> {
       `→ le robot paie tout en une fois, range les bordereaux sur le Drive et envoie le numéro de suivi à chaque client.\n\n` +
       `📁 <b>Tous les bordereaux</b> sont rangés ici (par jour) :\n` +
       `<a href="https://drive.google.com/drive/folders/1PeSWOhJ-ZtfyHX4St5vJIJNHErkAVKZG">📂 Ouvrir le Google Drive</a>\n` +
-      `━━━━━━━━━━\n` +
+      `━━━━━━━━\n` +
       `<b>Les commandes du canal :</b>\n` +
       `🛒 <b>/colis</b> — paie et expédie TOUTES les commandes payées en une seule fois (avec confirmation).\n` +
       `📊 <b>/aujourdhui</b> — récap du jour : reçues, expédiées, et ce qu'il reste à expédier.\n` +
