@@ -33,6 +33,10 @@ const NAME_REGEX = /^[A-Za-zÀ-ÿ' -]+$/
 const PHONE_REGEX = /^\+?[0-9 ().-]{8,20}$/
 // Email (format simple mais sûr) — champ optionnel, validé seulement s'il est rempli
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// Bot Telegram de SUIVI client : le client clique pour suivre le STATUT de sa commande
+// (le numéro de suivi du colis, lui, arrive par email via La Poste).
+const BOT_USERNAME = process.env.NEXT_PUBLIC_TRACKING_BOT_USERNAME || "labo_num_suivi_bot"
 // Code postal : FR = 5 chiffres, BE = 4 chiffres
 const CP_REGEX_FR = /^\d{5}$/
 const CP_REGEX_BE = /^\d{4}$/
@@ -294,11 +298,28 @@ export function OrderSection() {
                     <span className="text-[11px] text-violet-400">Conservez-le pour le suivi</span>
                   </div>
                 )}
-                <div className="mb-6 mx-auto inline-flex max-w-md items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-left">
-                  <Mail className="mt-0.5 h-5 w-5 shrink-0 text-sky-500" />
+                {orderRef && (
+                  <div className="mb-5">
+                    <a
+                      href={`https://t.me/${BOT_USERNAME}?start=${orderRef}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-violet-500 px-6 py-3.5 text-base font-semibold text-white shadow-lg shadow-violet-500/30 transition-all duration-300 hover:scale-105"
+                    >
+                      <Send className="h-5 w-5" />
+                      Suivre ma commande sur Telegram
+                    </a>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Clique puis appuie sur « Démarrer » — tu suivras le statut de ta commande en temps réel.
+                    </p>
+                  </div>
+                )}
+                <div className="mb-6 mx-auto flex max-w-md items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-left">
+                  <Mail className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />
                   <p className="text-sm text-slate-600">
-                    Tu recevras ton <span className="font-semibold text-slate-800">numéro de suivi par email</span> dès
-                    l&apos;expédition de ton colis (pense à vérifier tes spams).
+                    📦 Le <span className="font-semibold text-slate-800">numéro de suivi du colis</span> t&apos;arrivera
+                    automatiquement <span className="font-semibold text-slate-800">par email</span> dès sa prise en charge
+                    par La Poste (pense à vérifier tes spams).
                   </p>
                 </div>
                 <p className="text-slate-600 mb-6 max-w-md mx-auto">

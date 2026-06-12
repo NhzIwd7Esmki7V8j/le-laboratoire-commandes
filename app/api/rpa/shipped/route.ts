@@ -7,7 +7,7 @@
 //  - JSON { ref, status } → simple changement de statut (ex. robot fermé sans payer →
 //    on remet la commande en "paid" pour réafficher le bouton « Générer »).
 import { updateOrder, type OrderStatus } from "@/lib/orders"
-import { refreshOrderMessage, sendLabelToChannel, deleteChannelMessage } from "@/lib/telegram"
+import { refreshOrderMessage, refreshCustomerMessage, sendLabelToChannel, deleteChannelMessage } from "@/lib/telegram"
 
 const ALLOWED: OrderStatus[] = ["pending", "accepted", "paid", "generating", "label_generated", "cancelled"]
 
@@ -47,8 +47,9 @@ export async function POST(req: Request) {
       await refreshOrderMessage(updated)
     }
 
-    // Le CLIENT est notifié de son suivi directement par La Poste (email/SMS du destinataire
-    // renseigné à la commande) → plus besoin de le prévenir nous-mêmes sur Telegram.
+    // Côté client Telegram : on passe le statut à « expédié » (qui renvoie vers l'email La Poste
+    // pour le numéro de suivi). Le détail du suivi colis, lui, arrive par email du destinataire.
+    await refreshCustomerMessage(updated)
     return Response.json({ ok: true, ref, status: updated.status, trackingNumber: updated.trackingNumber ?? null })
   }
 

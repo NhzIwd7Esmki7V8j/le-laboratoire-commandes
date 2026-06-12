@@ -3,7 +3,7 @@
 // Principe : le message Telegram d'une commande est TOUJOURS re-rendu en entier
 // à partir de l'objet `Order` (renderOrderMessage). Plus besoin de re-parser le texte
 // existant pour changer un statut — on recharge la commande depuis Redis et on ré-affiche.
-import type { Order } from "./orders"
+import { updateOrder, type Order } from "./orders"
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const TRACKING_TOKEN = process.env.TELEGRAM_TRACKING_BOT_TOKEN
@@ -179,44 +179,31 @@ export function renderOrderMessage(order: Order): string {
 // (deep link /start CMD_xxx) ; ré-édité à chaque changement de statut.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Texte du message client selon le statut.
+// Texte du message client selon le statut — design soigné & pro (un seul message à l'écran).
 export function renderCustomerMessage(order: Order): string {
   const ref = escapeHtml(order.ref)
-  const header = `🧪 <b>LE LABORATOIRE</b>\n📋 Commande <b>${ref}</b>\n\n`
+  // Barre de progression visuelle de la commande (le ● = étape courante).
+  const steps = ["pending", "accepted", "paid", "label_generated"]
+  const idx = order.status === "generating" ? 2 : steps.indexOf(order.status)
+  const bar = order.status === "cancelled" ? "" : steps.map((_, i) => (i <= idx ? "🟣" : "⚪️")).join(" ") + "\n\n"
+  const header = `🧪 <b>LE LABORATOIRE</b>\n${SEP}\n📋 Commande <b>${ref}</b>\n\n${bar}`
   switch (order.status) {
     case "pending":
-      return (
-        header +
-        `⏳ <b>En attente de validation</b>\n` +
-        `On a bien reçu ta commande ! Notre équipe la valide manuellement — tu seras notifié·e ici dès que c'est bon ✅`
-      )
+      return header + `⏳ <b>Commande reçue</b>\n\nOn vérifie ta commande — tu seras prévenu·e ici à chaque étape. ✨`
     case "accepted":
-      return (
-        header +
-        `🟡 <b>En attente de paiement</b>\n` +
-        `Ta commande est validée 🎉 Finalise le paiement avec l'admin sur Telegram.\n\n` +
-        `<i>Tu recevras la notif de confirmation ici dès que ton paiement sera reçu.</i>`
-      )
+      return header + `✅ <b>Commande validée</b>\n\nIl ne reste plus qu'à finaliser le <b>paiement</b> avec l'équipe. 💳`
     case "paid":
     case "generating":
-      return (
-        header +
-        `📦 <b>En attente d'expédition</b>\n` +
-        `Paiement bien reçu, merci ! 🙌 On prépare ton colis — tu recevras ton numéro de suivi ici dès l'envoi.`
-      )
+      return header + `💳 <b>Paiement confirmé — merci !</b> 🙌\n\n📦 Ton colis est en cours de préparation…`
     case "label_generated":
       return (
         header +
-        `🚀 <b>Ton colis est en route !</b>\n\n` +
-        `🔖 Numéro de suivi :\n<b>${escapeHtml(order.trackingNumber ?? "—")}</b>\n\n` +
-        `Suis ton colis en temps réel sur laposte.fr 👇`
+        `🚀 <b>Ton colis est expédié !</b>\n\n` +
+        `📧 Ton <b>numéro de suivi</b> t'est envoyé <b>par email</b> (de la part de La Poste) dès que le colis est pris en charge.\n\n` +
+        `<i>Pense à vérifier tes spams 📬</i>`
       )
     case "cancelled":
-      return (
-        header +
-        `❌ <b>Commande annulée</b>\n` +
-        `Si c'est une erreur ou si tu as une question, n'hésite pas à contacter nos admins sur Telegram 💬`
-      )
+      return header + `❌ <b>Commande annulée</b>\n\nUne erreur, une question ? Contacte l'équipe, on est là. 💬`
   }
 }
 
@@ -277,21 +264,28 @@ export async function deleteCustomerMessage(chatId: number, messageId?: number):
   await tg("deleteMessage", { chat_id: chatId, message_id: messageId }, TRACKING_TOKEN).catch(() => {})
 }
 
-// Édite en place le message de suivi (no-op si pas encore envoyé / pas de bot configuré).
+// Met à jour le statut côté client : SUPPRIME l'ancien message et en envoie un NOUVEAU.
+// → le client reçoit une vraie notification (ping) ET il ne reste QUE le statut courant
+//   dans la conversation (chat propre). No-op si le client n'a pas lié le bot.
 export async function refreshCustomerMessage(order: Order): Promise<void> {
-  if (!TRACKING_TOKEN) return
-  if (!order.customerChatId || !order.customerMessageId) return
-  await tg(
-    "editMessageText",
+  if (!TRACKING_TOKEN || !order.customerChatId) return
+  // 1) Efface l'ancien message de statut (s'il existe) pour ne pas empiler les messages.
+  if (order.customerMessageId) {
+    await deleteCustomerMessage(order.customerChatId, order.customerMessageId)
+  }
+  // 2) Envoie le nouveau statut (= notification) et mémorise son id.
+  const res = await tgJson<{ ok: boolean; result?: { message_id: number } }>(
+    "sendMessage",
     {
       chat_id: order.customerChatId,
-      message_id: order.customerMessageId,
       text: renderCustomerMessage(order),
       parse_mode: "HTML",
       reply_markup: customerStatusButtons(order),
     },
     TRACKING_TOKEN,
-  ).catch(() => {})
+  ).catch(() => null)
+  const newId = res?.ok && res.result?.message_id ? res.result.message_id : null
+  if (newId) await updateOrder(order.ref, { customerMessageId: newId })
 }
 
 // Boutons inline selon le statut courant.

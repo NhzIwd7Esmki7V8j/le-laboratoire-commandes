@@ -3,7 +3,7 @@
 // ou via /start simple puis saisie manuelle de sa référence.
 // On lui envoie un message de suivi qui sera ÉDITÉ en place à chaque changement de statut.
 import { getOrder, updateOrder } from "@/lib/orders"
-import { tg, sendCustomerMessage } from "@/lib/telegram"
+import { tg, refreshCustomerMessage } from "@/lib/telegram"
 
 const SECRET = process.env.TELEGRAM_TRACKING_WEBHOOK_SECRET
 const TRACKING_TOKEN = process.env.TELEGRAM_TRACKING_BOT_TOKEN
@@ -23,12 +23,10 @@ const ORDER_BUTTON: InlineKb = {
 async function linkAndSend(chatId: number, ref: string): Promise<boolean> {
   const order = await getOrder(ref.toUpperCase())
   if (!order) return false
-  const messageId = await sendCustomerMessage(order, chatId)
-  if (messageId) {
-    await updateOrder(order.ref, { customerChatId: chatId, customerMessageId: messageId })
-  } else {
-    await updateOrder(order.ref, { customerChatId: chatId })
-  }
+  // Lie le chat client puis envoie le message de statut courant. refreshCustomerMessage gère
+  // aussi le re-clic (supprime l'ancien message avant d'en renvoyer un) → chat propre.
+  const updated = await updateOrder(order.ref, { customerChatId: chatId })
+  await refreshCustomerMessage(updated ?? { ...order, customerChatId: chatId })
   return true
 }
 
