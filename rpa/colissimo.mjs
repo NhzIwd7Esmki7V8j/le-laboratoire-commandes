@@ -90,6 +90,14 @@ async function extractTracking(filePath) {
       console.log("🔢 N° suivi (format imprimé): " + tn)
       return tn
     }
+    // Format INTERNATIONAL / Belgique (norme UPU) : 2 lettres + 9 chiffres + 2 lettres,
+    // imprimé « CO 7403 2994 7 FR » → « CO740329947FR ».
+    const intl = text.match(/[A-Z]{2}(?:\s?\d){9}\s?[A-Z]{2}/)
+    if (intl) {
+      const tn = intl[0].replace(/\s+/g, "")
+      console.log("🔢 N° suivi (format international): " + tn)
+      return tn
+    }
     // Fallback : 1re occurrence du motif compact (avec espaces éventuels entre chiffres).
     const matches = (text.match(/\d[A-Z](?:\s*\d){11}/g) || []).map((m) => m.replace(/\s+/g, ""))
     const candidates = [...new Set(matches)]
@@ -166,6 +174,30 @@ let labelHandled = false
 async function handleLabel(filePath) {
   if (labelHandled) return
   labelHandled = true
+  // 🔒 SÉCURITÉ : on ne poste l'étiquette QUE si elle correspond bien à CETTE commande
+  // (nom du destinataire présent dans le PDF). Évite de poster une étiquette d'un homonyme
+  // récupérée par erreur dans l'historique La Poste.
+  const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "")
+  let text = ""
+  try {
+    const pdf = (await import("pdf-parse")).default
+    text = (await pdf(readFileSync(filePath))).text || ""
+  } catch {
+    /* parsing KO → on tente quand même l'envoi (mieux que rien) */
+  }
+  const nomOk = !order.nom || norm(text).includes(norm(order.nom))
+  // CP destinataire : vérifié SEULEMENT en domicile/international (en relais, l'étiquette porte
+  // l'adresse du relais, pas le CP du client). Discrimine les homonymes (ex. 2 « Camille Roussel »).
+  const cpOk = order.deliveryMode === "relais" || !order.codePostal || text.replace(/\s+/g, "").includes(order.codePostal)
+  if (text && !(nomOk && cpOk)) {
+    console.log(`⛔ Étiquette téléchargée NE correspond PAS à ${order.ref} (nom=${nomOk} CP=${cpOk}) → NON postée (sécurité anti-mauvaise-étiquette).`)
+    await sendAlert(
+      "vérification étiquette",
+      `L'étiquette récupérée ne correspond pas à la commande (destinataire « ${order.prenom} ${order.nom} » / CP ${order.codePostal} introuvable sur le PDF). Récupère-la à la main dans l'espace client.`,
+      false,
+    )
+    return
+  }
   const tn = await extractTracking(filePath)
   await uploadLabel(filePath, tn)
 }
@@ -405,6 +437,15 @@ try {
   await maybe("#onetrust-accept-btn-handler", { timeout: 2500 })
   await page.waitForTimeout(1500)
 
+  // 🧹 Panier propre garanti : on vide tout colis résiduel d'un run précédent AVANT de commencer.
+  // (Un échec après l'ajout au panier laisserait sinon un colis → 2 colis au run suivant → la
+  // garde anti-surfacturation bloquerait le paiement. On part toujours d'un panier vide.)
+  if (REAL) {
+    step = "nettoyage panier (démarrage)"
+    const emptied = await clearCart()
+    log(emptied ? "Panier vérifié vide avant de commencer." : "⚠️ Panier non confirmé vide (on continue, la garde anti-surfacturation protège).")
+  }
+
   step = "caractéristiques (destination + poids)"
   // 1) Caractéristiques : destination (international) + poids
   // Pour l'étranger (Belgique), on règle la destination via le dropdown #arrival AVANT le poids :
@@ -642,13 +683,18 @@ try {
       await page.locator("#cgv").check().catch(() => {})
       await page.waitForTimeout(2500) // laisse le formulaire valider carte + CVV + cases
       // Clique « Payer » — mais SEULEMENT si le montant ≈ 1 colis (anti-surfacturation).
+      // ⚠️ Un colis SEUL coûte ~6-8 € en France mais ~15 € pour la Belgique → seuil adapté au
+      // pays, sinon une commande BE légitime (14,99 €) serait bloquée à tort.
       const payBtn = page.locator('button:has-text("Payer")').first()
       const payText = await payBtn.innerText().catch(() => "")
       const amount = parseFloat(((payText.match(/(\d+[.,]\d{2})/) || [])[1] || "0").replace(",", "."))
+      const maxAmount = order.pays === "BE" ? 18 : 11 // 1 colis : FR ≤ ~8 €, BE ≤ ~15 €
       let paid = false
-      if (amount > 12) {
-        console.log(`\n⛔ Panier à ${amount} € (plusieurs colis !) — auto-paiement ANNULÉ pour ne pas surpayer. Vide le panier puis relance.`)
-        await sendAlert("paiement (anti-surfacturation)", `Panier à ${amount} € (plusieurs colis) — paiement annulé. Vide le panier et relance.`, true)
+      if (amount > maxAmount) {
+        console.log(`\n⛔ Panier à ${amount} € (> ${maxAmount} € attendu pour 1 colis ${order.pays}) — auto-paiement ANNULÉ. Vide le panier puis relance.`)
+        await sendAlert("paiement (anti-surfacturation)", `Panier à ${amount} € (plusieurs colis ?) — paiement annulé. Vide le panier et relance.`, true)
+        await ctx.close().catch(() => {})
+        process.exit(1) // sortie propre (pas de blocage du veilleur)
       } else {
         const st0 = await payBtn.isDisabled().catch(() => null)
         log(`  Bouton « Payer » (${amount} €) au départ : ${st0 === true ? "DÉSACTIVÉ" : st0 === false ? "actif" : "introuvable"}`)
@@ -685,26 +731,31 @@ try {
       // de payer (identifié par le destinataire, sinon le plus récent) et télécharger son étiquette.
       if (paid) {
         step = "téléchargement étiquette (espace client)"
-        await page.waitForTimeout(6000) // laisse La Poste finaliser le paiement + créer le colis
-        const who = `${order.prenom} ${order.nom}`.replace(/\s+/g, " ").trim()
+        await page.waitForTimeout(8000) // laisse La Poste finaliser le paiement + créer le colis
+        // ⚠️ Dans l'espace client, le colis est nommé d'après le DESTINATAIRE affiché :
+        //   - point relais FR → le nom du RELAIS (ex. « Colis - RETIK 243 MULTISERVICES »)
+        //   - domicile / international → le nom du CLIENT (ex. « Colis - Jean Dupont »)
+        const who =
+          order.deliveryMode === "relais" && order.pays === "FR" && order.pointRelais
+            ? order.pointRelais.split(" — ")[0].trim()
+            : `${order.prenom} ${order.nom}`.replace(/\s+/g, " ").trim()
         let ok = false
-        for (let i = 0; i < 6 && !ok; i++) {
+        for (let i = 0; i < 8 && !ok; i++) {
           await page.goto("https://www.laposte.fr/espaceclient/", { waitUntil: "domcontentloaded" }).catch(() => {})
           await page.waitForTimeout(3500)
-          // Ouvre le colis du bon destinataire ; repli sur le plus récent si non trouvé.
-          let card = page.locator(`button:has-text("Colis - ${who}"), a:has-text("Colis - ${who}")`).first()
+          // On ouvre UNIQUEMENT le colis du bon destinataire (PAS de repli sur n'importe quel
+          // colis : ça récupérerait l'étiquette d'une autre commande). S'il n'est pas encore
+          // apparu (le colis met du temps après paiement), on recharge et on réessaie.
+          const card = page.locator(`button:has-text("Colis - ${who}"), a:has-text("Colis - ${who}")`).first()
           if (!(await card.isVisible({ timeout: 3000 }).catch(() => false))) {
-            card = page.locator('button:has-text("Colis -"), a:has-text("Colis -")').first()
-          }
-          if (!(await card.isVisible({ timeout: 3000 }).catch(() => false))) {
-            await page.waitForTimeout(3000) // le colis n'est pas encore apparu → on réessaie
+            await page.waitForTimeout(4000)
             continue
           }
           await card.click().catch(() => {})
           await page.waitForTimeout(3000)
           const dl = page.locator('button:has-text("Télécharger l"), a:has-text("Télécharger l")').first()
           if (await dl.isVisible({ timeout: 5000 }).catch(() => false)) {
-            await dl.click().catch(() => {}) // déclenche l'event "download" → handleLabel
+            await dl.click().catch(() => {}) // déclenche l'event "download" → handleLabel (qui VÉRIFIE le destinataire)
             ok = true
           }
         }
