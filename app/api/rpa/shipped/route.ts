@@ -7,13 +7,7 @@
 //  - JSON { ref, status } → simple changement de statut (ex. robot fermé sans payer →
 //    on remet la commande en "paid" pour réafficher le bouton « Générer »).
 import { updateOrder, type OrderStatus } from "@/lib/orders"
-import {
-  refreshOrderMessage,
-  refreshCustomerMessage,
-  sendLabelToChannel,
-  deleteChannelMessage,
-  refreshCartSummary,
-} from "@/lib/telegram"
+import { refreshOrderMessage, refreshCustomerMessage } from "@/lib/telegram"
 
 const ALLOWED: OrderStatus[] = ["pending", "accepted", "paid", "in_cart", "generating", "label_generated", "cancelled"]
 
@@ -24,13 +18,14 @@ export async function POST(req: Request) {
 
   const ct = req.headers.get("content-type") || ""
 
-  // ── Cas 1 : upload du PDF → expédiée + message unifié ──
+  // ── Cas 1 : commande EXPÉDIÉE (le PDF, lui, est déposé sur le Drive par le robot) ──
+  // On NE poste PLUS le bordereau sur Telegram : on met juste à jour le statut (texte) et on
+  // envoie le NUMÉRO DE SUIVI au client (au moment du paiement). Le `file` éventuel est ignoré.
   if (ct.includes("multipart/form-data")) {
     const form = await req.formData().catch(() => null)
     if (!form) return new Response("form invalide", { status: 400 })
     const ref = String(form.get("ref") || "").trim()
     const trackingNumber = String(form.get("trackingNumber") || "").trim()
-    const file = form.get("file")
     if (!ref) return new Response("ref manquant", { status: 400 })
 
     const patch: { status: OrderStatus; trackingNumber?: string } = { status: "label_generated" }
@@ -38,26 +33,8 @@ export async function POST(req: Request) {
     const updated = await updateOrder(ref, patch)
     if (!updated) return new Response("Commande introuvable", { status: 404 })
 
-    // Poste l'étiquette + infos en légende, puis supprime l'ancien message texte.
-    if (file && typeof (file as Blob).arrayBuffer === "function") {
-      const pdf = new Uint8Array(await (file as Blob).arrayBuffer())
-      const oldMsgId = updated.telegramMessageId
-      const newMsgId = await sendLabelToChannel(updated, pdf)
-      if (newMsgId) {
-        if (oldMsgId && oldMsgId !== newMsgId) await deleteChannelMessage(updated, oldMsgId)
-        await updateOrder(ref, { telegramMessageId: newMsgId })
-      } else {
-        await refreshOrderMessage(updated) // envoi PDF KO → au moins re-render le texte
-      }
-    } else {
-      await refreshOrderMessage(updated)
-    }
-
-    // Côté client Telegram : on passe le statut à « expédié » (qui renvoie vers l'email La Poste
-    // pour le numéro de suivi). Le détail du suivi colis, lui, arrive par email du destinataire.
-    await refreshCustomerMessage(updated)
-    // Un colis vient de quitter le panier (in_cart → expédié) → met à jour le récap panier.
-    await refreshCartSummary().catch(() => {})
+    await refreshOrderMessage(updated) // message admin : passe à « Expédiée » (texte, sans PDF)
+    await refreshCustomerMessage(updated) // client : reçoit son numéro de suivi
     return Response.json({ ok: true, ref, status: updated.status, trackingNumber: updated.trackingNumber ?? null })
   }
 
@@ -71,8 +48,6 @@ export async function POST(req: Request) {
   const updated = await updateOrder(ref, { status })
   if (!updated) return new Response("Commande introuvable", { status: 404 })
   await refreshOrderMessage(updated)
-  // Ajout/retrait du panier groupé → met à jour le message récap « Panier du jour ».
-  if (status === "in_cart" || status === "paid") await refreshCartSummary().catch(() => {})
   return Response.json({ ok: true, ref, status: updated.status })
 }
 

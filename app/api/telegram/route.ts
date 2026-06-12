@@ -2,12 +2,38 @@
 // Reçoit les "callback_query" ; le callback_data est au format "action:ref"
 // (ex: "gen:CMD_123456"). La commande est rechargée depuis Redis et le message
 // est re-rendu EN ENTIER sur place (un seul canal, pas de copie vers un 2e canal).
-import { getOrder, updateOrder } from "@/lib/orders"
+import { getOrder, updateOrder, listOrders } from "@/lib/orders"
 import { redis } from "@/lib/redis"
 import { tg, refreshOrderMessage, refreshCustomerMessage } from "@/lib/telegram"
 import { cancelAndDelete, type Answer } from "@/lib/order-actions"
 
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET
+const ADMIN_CHAT = process.env.TELEGRAM_CHAT_ID
+
+// 📦 /commandes_du_jour — expédie TOUTES les commandes payées en une fois :
+// chaque colis est ajouté au panier (robot), puis tout est payé en un seul paiement,
+// déposé sur le Drive, et le numéro de suivi est envoyé à chaque client.
+async function handleDayBatch(chatId: number): Promise<void> {
+  const paid = await listOrders("paid")
+  if (!paid.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "📭 Aucune commande payée à expédier pour le moment." })
+    return
+  }
+  // Verrou (passe en « génération ») + ajout au panier de chaque commande, puis paiement du lot.
+  for (const o of paid) {
+    await updateOrder(o.ref, { status: "generating" })
+    await redis.rpush("robot:queue", `cart:${o.ref}`)
+  }
+  await redis.rpush("robot:queue", "pay")
+  await tg("sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text:
+      `📦 <b>Expédition du jour lancée — ${paid.length} commande(s)</b>\n\n` +
+      `• Ajout des colis au panier\n• Paiement groupé en une fois\n• Dépôt des bordereaux sur le Drive\n• Envoi du numéro de suivi à chaque client\n\n` +
+      `⏳ Garde le robot (veilleur) allumé sur le PC — ça tourne tout seul.`,
+  })
+}
 
 // Le client démarre le bot avec "/start CMD_xxx" → on lie son chat à la commande
 // pour pouvoir lui envoyer son suivi automatiquement à l'expédition.
@@ -47,9 +73,20 @@ export async function POST(req: Request) {
     return new Response("bad json", { status: 400 })
   }
 
+  // Message texte (message direct OU post du canal admin).
+  const msg = update?.message || update?.channel_post
+  const msgText = typeof msg?.text === "string" ? msg.text.trim() : ""
+
+  // 📦 Commande ADMIN : /commandes_du_jour (réservée au canal admin).
+  if (msgText.startsWith("/commandes_du_jour")) {
+    if (!ADMIN_CHAT || String(msg?.chat?.id) === ADMIN_CHAT) {
+      await handleDayBatch(msg.chat.id).catch(() => {})
+    }
+    return new Response("ok", { status: 200 })
+  }
+
   // Message du CLIENT : "/start CMD_xxx" (via le bouton « Recevoir mon suivi »).
-  const msg = update?.message
-  if (msg && typeof msg.text === "string" && msg.text.startsWith("/start")) {
+  if (msgText.startsWith("/start")) {
     await handleStart(msg).catch(() => {})
     return new Response("ok", { status: 200 })
   }
@@ -62,14 +99,6 @@ export async function POST(req: Request) {
   const ref = parts[1]
   const answer: Answer = (text, alert = false) =>
     tg("answerCallbackQuery", { callback_query_id: cb.id, text, show_alert: alert })
-
-  // 💳 PANIER GROUPÉ : « Tout payer » (callback paycart:ALL) — action GLOBALE, sans commande
-  // précise → on la traite avant le chargement d'une commande.
-  if (action === "paycart") {
-    await redis.rpush("robot:queue", "pay")
-    await answer("Paiement du panier lancé 💳 — le robot paie tout et récupère les étiquettes.")
-    return new Response("ok", { status: 200 })
-  }
 
   if (!ref) {
     await answer()
@@ -120,24 +149,6 @@ export async function POST(req: Request) {
           await refreshCustomerMessage(updated)
         }
         await answer("Génération du bordereau lancée ⚗️ — le robot va s'ouvrir sur ta machine.")
-        break
-      }
-      case "cart": {
-        // 🛒 PANIER GROUPÉ — ajoute le colis au panier Colissimo (SANS payer).
-        // Le robot remplit le parcours et met le colis au panier, puis repasse la commande
-        // en "in_cart". Le paiement se fait ensuite en une fois via « Tout payer ».
-        if (order.status === "in_cart") {
-          await answer("Déjà au panier 🛒", true)
-          break
-        }
-        if (order.status !== "paid") {
-          await answer("La commande doit d'abord être payée.", true)
-          break
-        }
-        const updated = await updateOrder(ref, { status: "generating" }) // lock visuel
-        await redis.rpush("robot:queue", `cart:${ref}`)
-        if (updated) await refreshOrderMessage(updated)
-        await answer("Ajout au panier lancé 🛒 — le robot prépare le colis.")
         break
       }
       case "cancel":
