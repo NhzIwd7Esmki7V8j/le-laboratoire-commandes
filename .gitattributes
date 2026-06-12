@@ -1,0 +1,4 @@
+# Les scripts shell DOIVENT garder des fins de ligne LF, sinon ils sont inexécutables
+# dans le conteneur Linux ("bad interpreter: /bin/bash^M").
+*.sh text eol=lf
+entrypoint.sh text eol=lf

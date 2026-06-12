@@ -1,0 +1,14 @@
+# Contexte de build = racine du repo. On exclut tout le superflu pour un build léger/rapide
+# (le Dockerfile ne COPY que rpa/package.json + rpa/*.mjs + rpa/entrypoint.sh).
+**/node_modules
+.next
+.open-next
+.git
+.vercel
+.wrangler
+public
+rpa/.chromium
+rpa/*.pdf
+rpa/*.png
+rpa/*.log
+*.local

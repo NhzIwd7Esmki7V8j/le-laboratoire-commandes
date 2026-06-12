@@ -62,9 +62,13 @@ if (!ref) {
 const order = await fetchOrder(ref)
 console.log(`\n📦 ${order.ref} — ${order.prenom} ${order.nom} — ${order.deliveryMode} (${order.pays})${TEST ? "  [MODE TEST]" : ""}\n`)
 
+// En conteneur (root), Chromium exige --no-sandbox + /dev/shm partagé (RPA_NO_SANDBOX=1).
+// En local sous Windows : aucun argument, comportement inchangé.
+const launchArgs = process.env.RPA_NO_SANDBOX === "1" ? ["--no-sandbox", "--disable-dev-shm-usage"] : []
 const ctx = await chromium.launchPersistentContext(join(__dirname, ".chromium"), {
   headless: process.env.RPA_HEADLESS === "1",
   viewport: { width: 1400, height: 950 },
+  args: launchArgs,
 })
 ctx.setDefaultTimeout(22000) // marge pour les chargements lents de laposte.fr (réduit la flakiness)
 const page = ctx.pages()[0] ?? (await ctx.newPage())

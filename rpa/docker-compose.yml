@@ -1,0 +1,25 @@
+# Hébergement du robot Colissimo + veilleur sur un VPS.
+# Lancer depuis le dossier rpa/ :  docker compose up -d --build
+services:
+  bot:
+    build:
+      context: ..            # le contexte est la racine du repo (pour COPY rpa/...)
+      dockerfile: rpa/Dockerfile
+    image: labo-rpa-colissimo
+    container_name: labo-rpa
+    restart: unless-stopped
+    shm_size: "1gb"          # Chromium a besoin d'une grande /dev/shm
+    environment:
+      # Mot de passe de l'écran déporté noVNC (OBLIGATOIRE — change-le !).
+      VNC_PASSWORD: "${VNC_PASSWORD:-change-moi}"
+    volumes:
+      # Secrets (mêmes clés qu'en local). Le code lit ../.env.local → /app/.env.local.
+      - ../.env.local:/app/.env.local:ro
+      # Session La Poste persistante (connexion + carte mémorisée). À NE PAS perdre.
+      - laposte-profile:/app/rpa/.chromium
+    ports:
+      # Écran déporté noVNC. ⚠️ En prod, restreins l'accès (firewall / tunnel SSH).
+      - "6080:6080"
+
+volumes:
+  laposte-profile:

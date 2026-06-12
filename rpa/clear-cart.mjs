@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const sandboxArgs = process.env.RPA_NO_SANDBOX === "1" ? ["--no-sandbox", "--disable-dev-shm-usage"] : []
 const ctx = await chromium.launchPersistentContext(join(__dirname, ".chromium"), {
   headless: process.env.RPA_HEADLESS === "1",
   viewport: { width: 1400, height: 950 },
+  args: sandboxArgs,
 })
 const page = ctx.pages()[0] ?? (await ctx.newPage())
 
