@@ -609,46 +609,39 @@ try {
         if (!paid) await sendAlert("paiement (bouton Payer)", "Le bouton « Payer » est resté inactif/non cliquable — paiement non déclenché.", true)
       }
 
-      // Attend la confirmation + télécharge l'étiquette UNIQUEMENT si le paiement a été déclenché.
-      const confirmed = paid
-        ? await page
-            .locator("text=Accéder à mon Espace client")
-            .first()
-            .waitFor({ state: "visible", timeout: 180000 })
-            .then(() => true)
-            .catch(() => false)
-        : false
-      if (confirmed) {
-        log("Paiement confirmé → ouverture de l'espace client + téléchargement de l'étiquette…")
-        const before = ctx.pages().length
-        await maybe("text=Accéder à mon Espace client", { timeout: 6000 })
-        await page.waitForTimeout(6000)
-        const pages = ctx.pages()
-        const target = pages.length > before ? pages[pages.length - 1] : page
-        await target.waitForLoadState("domcontentloaded").catch(() => {})
-        await target.waitForTimeout(3000)
-        const clickDl = async (t) => {
-          try {
-            await target.locator(`text=${t}`).first().click({ timeout: 6000 })
-            return true
-          } catch {
-            return false
+      // ── Après paiement : récupérer l'étiquette dans l'ESPACE CLIENT ──
+      // La page de confirmation post-paiement redirige souvent vers le panier (vide) → peu fiable.
+      // On va donc DIRECTEMENT dans l'espace client (/espaceclient/) ouvrir le colis qu'on vient
+      // de payer (identifié par le destinataire, sinon le plus récent) et télécharger son étiquette.
+      if (paid) {
+        step = "téléchargement étiquette (espace client)"
+        await page.waitForTimeout(6000) // laisse La Poste finaliser le paiement + créer le colis
+        const who = `${order.prenom} ${order.nom}`.replace(/\s+/g, " ").trim()
+        let ok = false
+        for (let i = 0; i < 6 && !ok; i++) {
+          await page.goto("https://www.laposte.fr/espaceclient/", { waitUntil: "domcontentloaded" }).catch(() => {})
+          await page.waitForTimeout(3500)
+          // Ouvre le colis du bon destinataire ; repli sur le plus récent si non trouvé.
+          let card = page.locator(`button:has-text("Colis - ${who}"), a:has-text("Colis - ${who}")`).first()
+          if (!(await card.isVisible({ timeout: 3000 }).catch(() => false))) {
+            card = page.locator('button:has-text("Colis -"), a:has-text("Colis -")').first()
+          }
+          if (!(await card.isVisible({ timeout: 3000 }).catch(() => false))) {
+            await page.waitForTimeout(3000) // le colis n'est pas encore apparu → on réessaie
+            continue
+          }
+          await card.click().catch(() => {})
+          await page.waitForTimeout(3000)
+          const dl = page.locator('button:has-text("Télécharger l"), a:has-text("Télécharger l")').first()
+          if (await dl.isVisible({ timeout: 5000 }).catch(() => false)) {
+            await dl.click().catch(() => {}) // déclenche l'event "download" → handleLabel
+            ok = true
           }
         }
-        step = "téléchargement étiquette"
-        const ok = (await clickDl("Télécharger toutes les étiquettes")) || (await clickDl("Télécharger l'étiquette"))
-        log(ok ? "  ✓ Téléchargement déclenché — l'étiquette part dans Telegram." : "  ✗ Bouton de téléchargement introuvable — télécharge à la main (le robot la captera).")
-        // Échec APRÈS paiement → on n'annule PAS le paiement (reset=false), on signale juste à l'admin.
-        if (!ok) await sendAlert("téléchargement étiquette", "Paiement OK mais le bouton de téléchargement de l'étiquette est introuvable.", false)
-      } else {
-        log("⚠️ Confirmation de paiement non détectée (3DS trop longue ?) — télécharge l'étiquette à la main.")
-        // Payer a été cliqué mais pas de confirmation : on alerte sans annuler (paiement peut être passé).
-        if (paid) await sendAlert("confirmation paiement", "« Payer » cliqué mais confirmation non détectée (3DS trop longue ?). Vérifie le paiement et récupère l'étiquette à la main.", false)
-      }
-      // Paiement déclenché : on attend que le téléchargement soit traité (extraction du n° de
-      // suivi + envoi au canal + notification client), PUIS on ferme proprement et on quitte
-      // (sinon le navigateur reste ouvert et bloque le veilleur pour la commande suivante).
-      if (paid) {
+        log(ok ? "  ✓ Téléchargement déclenché — l'étiquette part dans Telegram." : "  ✗ Étiquette introuvable dans l'espace client.")
+        // Échec APRÈS paiement → on n'annule PAS le paiement (reset=false), on signale juste.
+        if (!ok) await sendAlert("téléchargement étiquette", "Paiement OK mais étiquette introuvable dans l'espace client — récupère-la à la main.", false)
+        // Attend le traitement (extraction suivi + envoi Telegram + notif client) puis ferme.
         for (let i = 0; i < 40 && !labelHandled; i++) await page.waitForTimeout(1000)
         await page.waitForTimeout(1500)
         log(labelHandled ? "Terminé — étiquette traitée. Fermeture." : "Fermeture (étiquette à vérifier).")
