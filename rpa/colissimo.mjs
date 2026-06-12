@@ -354,24 +354,47 @@ async function confirmAddress() {
 }
 
 // Remplit le panneau « adresse destinataire » (commun domicile + relais).
+// Adresse appliquée = le panneau « Mes contacts » est refermé (le bouton « Renseigner une
+// adresse » a disparu). Tant qu'il est là, l'adresse n'a pas été validée.
+async function addressApplied() {
+  return !(await txt("Renseigner une adresse").isVisible({ timeout: 1500 }).catch(() => false))
+}
+
+// Remplit l'adresse destinataire via le panneau « Mes contacts » de La Poste. Ce panneau est
+// strict (champ « Lieu-dit / boîte postale » réclamé) et n'applique l'adresse que si tout est
+// valide → on remplit TOUT, on Enregistre, et on VÉRIFIE que le panneau s'est refermé ; sinon
+// on réessaie. Robuste face aux re-renders / validations capricieuses.
 async function fillRecipient() {
-  await txt("Renseigner une adresse").click()
-  await page.waitForTimeout(2500)
-  await page.locator("#sexaddressForm-MALE").first().check({ force: true }) // genre non stocké → défaut Monsieur
-  await fill("#firstName", order.prenom)
-  await fill("#lastName", order.nom)
-  if (order.pays !== "FR") {
-    // En international, le pays est déjà fixé (destination choisie à l'étape 1) et le select
-    // est désactivé. On vérifie juste qu'il vaut bien le bon pays.
-    const cur = await page.locator("#country-addressForm").evaluate((s) => s.value).catch(() => "")
-    if (cur !== order.pays) log(`⚠️ Pays attendu ${order.pays}, trouvé « ${cur || "?"} » — à vérifier.`)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (await addressApplied()) return // déjà fait
+    // 1) Ouvre le panneau (le clic n'ouvre pas toujours du 1er coup).
+    for (let i = 0; i < 3 && !(await page.locator("#firstName").isVisible({ timeout: 1200 }).catch(() => false)); i++) {
+      await txt("Renseigner une adresse").click({ timeout: 6000 }).catch(() => {})
+      await page.waitForTimeout(1800)
+    }
+    if (!(await page.locator("#firstName").isVisible({ timeout: 6000 }).catch(() => false))) continue // panneau pas ouvert → on retente
+    // 2) Remplit tous les champs.
+    await page.locator("#sexaddressForm-MALE").first().check({ force: true }).catch(() => {}) // genre → défaut Monsieur
+    await fill("#firstName", order.prenom)
+    await fill("#lastName", order.nom)
+    await fill("#zipCode-addressForm", order.codePostal)
+    await fill("#city-addressForm", order.ville)
+    await fill("#streetName-addressForm", order.adresse)
+    // « Lieu-dit ou boîte postale » : requis par le panneau → si vide, on y met la ville (valeur
+    // sûre et acceptée) pour passer la validation, sinon Enregistrer reste bloqué.
+    const lieuDit = page.locator("#additionalStreetNameaddressForm")
+    if ((await lieuDit.isVisible({ timeout: 1000 }).catch(() => false)) && !(await lieuDit.inputValue().catch(() => "x"))) {
+      await lieuDit.fill(order.ville).catch(() => {})
+    }
+    // 3) Enregistre + confirme l'éventuelle modale d'adresse.
+    await btn("Enregistrer").click({ timeout: 8000 }).catch(() => {})
+    await confirmAddress()
+    await page.waitForTimeout(2000)
+    // 4) Vérifie que l'adresse est bien appliquée (panneau refermé).
+    if (await addressApplied()) return
+    log(`Adresse pas encore appliquée (tentative ${attempt + 1}/3) → on réessaie…`)
   }
-  await fill("#zipCode-addressForm", order.codePostal)
-  await fill("#city-addressForm", order.ville)
-  await fill("#streetName-addressForm", order.adresse)
-  await btn("Enregistrer").click()
-  await confirmAddress()
-  await page.waitForTimeout(1500)
+  throw new Error("Adresse destinataire non appliquée (panneau « Mes contacts » bloqué) — réessaie.")
 }
 
 // ── Parcours ────────────────────────────────────────────────────────────────
