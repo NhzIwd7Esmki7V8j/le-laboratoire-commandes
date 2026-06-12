@@ -162,18 +162,19 @@ try {
     process.exit(0)
   }
 
-  // ── 1) Aller au panier puis à la page de paiement ──
+  // ── 1) Récapitulatif colis → « Accéder au panier » → (login) → « Valider mon panier » → paiement ──
   log("Ouverture du panier…")
   await page.goto("https://www.laposte.fr/colissimo-en-ligne/panier", { waitUntil: "domcontentloaded" })
   await page.locator("#onetrust-accept-btn-handler").click({ timeout: 2500 }).catch(() => {})
-  await page.waitForTimeout(3000)
-  await page.locator('button:has-text("Valider mon panier"), button:has-text("Commander")').first().click({ timeout: 10000 }).catch(() => {})
-  await page.waitForTimeout(2500)
+  await page.waitForTimeout(4000)
+  // Le récapitulatif liste les colis : on clique « Accéder au panier » pour passer au checkout.
+  await page.locator('button:has-text("Accéder au panier"), a:has-text("Accéder au panier")').first().click({ timeout: 10000 }).catch(() => {})
+  await page.waitForTimeout(3500)
   await loginIfNeeded(page)
-  await page.locator('button:has-text("Valider mon panier")').first().click({ timeout: 8000 }).catch(() => {})
-  // Attend la page de paiement
-  await page.waitForURL(/checkout\/paiement/, { timeout: 20000 }).catch(() => {})
+  await page.locator('button:has-text("Valider mon panier")').first().click({ timeout: 10000 }).catch(() => {})
+  await page.waitForURL(/checkout\/paiement/, { timeout: 25000 }).catch(() => {})
   await loginIfNeeded(page)
+  await page.waitForTimeout(2000)
 
   // ── 2) Paiement (carte mémorisée + CVV + cases) ──
   if (env.RPA_AUTOPAY !== "1" || !env.LAPOSTE_CVV) {
